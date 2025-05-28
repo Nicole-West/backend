@@ -10,6 +10,8 @@ const academicYearRoutes = require('./routes/academicYear');
 const archiveRoutes = require('./routes/archiveRoutes');
 const nextSemesterRoutes = require('./routes/nextSemesterRoutes');
 
+const statsRoutes = require('./routes/statsRoutes');
+
 const app = express();
 
 app.use(cors());
@@ -24,6 +26,8 @@ app.use('/api/month', nextMonthRoutes);
 app.use('/api/academic-year', academicYearRoutes);
 app.use('/api/archive', archiveRoutes);
 app.use('/api/semester-transition', nextSemesterRoutes);
+
+app.use('/api/stats', statsRoutes);
 
 // Запуск сервера
 const PORT = process.env.PORT || 3000;
