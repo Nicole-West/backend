@@ -26,3 +26,145 @@ exports.getCurrentStats = async (req, res) => {
     res.status(500).json({ message: 'Ошибка при получении статистики' });
   }
 };
+
+// Получение статистики по неаттестациям и нулевым оценкам
+exports.getCurrentStats = async (req, res) => {
+  try {
+    const [results] = await pool.query('CALL get_current_attestation_stats()');
+    
+    res.json({
+      total_failed: results[0][0].total_failed,
+      students_with_3plus_zeros: results[1].map(student => ({
+        ...student,
+        zero_count: student.fail_count
+      })),
+      failed_by_group_subject: results[2].map(item => ({
+        ...item,
+        failed_count: item.zero_count
+      }))
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Ошибка при получении статистики' });
+  }
+};
+
+// Получение списка всех активных групп
+exports.getGroups = async (req, res) => {
+  try {
+    const [groups] = await pool.query(`
+      SELECT group_id, group_number 
+      FROM student_groups 
+      WHERE status = 'active'
+      ORDER BY group_number
+    `);
+    res.json(groups);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Ошибка при получении групп' });
+  }
+};
+
+// Получение списка всех предметов
+exports.getSubjects = async (req, res) => {
+  try {
+    const [subjects] = await pool.query(`
+      SELECT subject_id, subject_name 
+      FROM subjects 
+      ORDER BY subject_name
+    `);
+    res.json(subjects);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Ошибка при получении предметов' });
+  }
+};
+
+const XLSX = require('xlsx');
+
+
+exports.exportGrades = async (req, res) => {
+  try {
+    const { group_id, subject_id } = req.query;
+
+    // Получаем данные (остаётся без изменений)
+    const [grades] = await pool.query(`
+      SELECT 
+        s.student_id,
+        s.full_name,
+        g.grade,
+        am.month,
+        sub.subject_name,
+        grp.group_number,
+        CONCAT(u.last_name, ' ', LEFT(u.first_name, 1), '.') as teacher_name
+      FROM grades g
+      JOIN student_history sh ON g.student_history_id = sh.history_id
+      JOIN students s ON sh.student_id = s.student_id
+      JOIN group_subjects gs ON g.group_subject_id = gs.group_subject_id
+      JOIN course_subjects cs ON gs.course_subject_id = cs.course_subject_id
+      JOIN subjects sub ON cs.subject_id = sub.subject_id
+      JOIN student_groups grp ON sh.group_id = grp.group_id
+      JOIN active_months am ON g.month_id = am.month_id
+      LEFT JOIN teacher_assignments ta ON ta.group_subject_id = gs.group_subject_id
+      LEFT JOIN teachers t ON ta.teacher_id = t.teacher_id
+      LEFT JOIN users u ON t.user_id = u.user_id
+      WHERE sh.group_id = ?
+      AND cs.subject_id = ?
+      ORDER BY s.full_name, am.month
+    `, [group_id, subject_id]);
+
+    // Подготовка данных для Excel
+    const excelData = [
+      ['№', 'Студент', 'Группа', 'Предмет', 'Месяц', 'Оценка', 'Преподаватель'],
+      ...grades.map((row, index) => [
+        index + 1,
+        row.full_name,
+        row.group_number,
+        row.subject_name,
+        row.month,
+        row.grade === null ? 'Н/А' : row.grade,
+        row.teacher_name || 'Не указан'
+      ])
+    ];
+
+    // Создаем книгу и лист
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.aoa_to_sheet(excelData);
+    
+    // Добавляем стили для заголовков
+    worksheet['!cols'] = [
+      { width: 5 },  // №
+      { width: 30 }, // Студент
+      { width: 15 }, // Группа
+      { width: 25 }, // Предмет
+      { width: 10 }, // Месяц
+      { width: 10 }, // Оценка
+      { width: 20 }  // Преподаватель
+    ];
+
+    // Добавляем лист в книгу
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Оценки');
+
+    // Генерируем бинарные данные
+    const excelBuffer = XLSX.write(workbook, {
+      bookType: 'xlsx',
+      type: 'buffer'
+    });
+
+    // Отправляем файл
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename=grades_${group_id}_${subject_id}.xlsx`
+    );
+
+    res.send(excelBuffer);
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Ошибка при экспорте оценок' });
+  }
+};

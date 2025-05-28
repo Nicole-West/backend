@@ -5,6 +5,16 @@ const statsController = require('../controllers/statsController');
 
 router.get('/current-zeros', statsController.getCurrentStats);
 
-router.get('/export-grades', statsController.exportGroupSubjectGrades);
+// Список групп
+router.get('/groups',
+  statsController.getGroups
+);
+
+// Список предметов
+router.get('/subjects',
+  statsController.getSubjects
+);
+
+router.get('/export-grades', statsController.exportGrades);
 
 module.exports = router;
