@@ -27,25 +27,26 @@ exports.getCurrentStats = async (req, res) => {
   }
 };
 
-// Получение статистики по неаттестациям и нулевым оценкам
-exports.getCurrentStats = async (req, res) => {
+exports.getGroupSubjects = async (req, res) => {
   try {
-    const [results] = await pool.query('CALL get_current_attestation_stats()');
+    const { group_id } = req.query;
     
-    res.json({
-      total_failed: results[0][0].total_failed,
-      students_with_3plus_zeros: results[1].map(student => ({
-        ...student,
-        zero_count: student.fail_count
-      })),
-      failed_by_group_subject: results[2].map(item => ({
-        ...item,
-        failed_count: item.zero_count
-      }))
-    });
+    const [subjects] = await pool.query(`
+      SELECT DISTINCT s.subject_id, s.subject_name
+      FROM group_subjects gs
+      JOIN course_subjects cs ON gs.course_subject_id = cs.course_subject_id
+      JOIN subjects s ON cs.subject_id = s.subject_id
+      JOIN group_history gh ON gs.group_id = gh.group_id
+      WHERE gs.group_id = ?
+      AND gs.status = 'active'
+      AND gh.year_id = (SELECT year_id FROM academic_years WHERE is_current = TRUE)
+      ORDER BY s.subject_name
+    `, [group_id]);
+    
+    res.json(subjects);
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: 'Ошибка при получении статистики' });
+    res.status(500).json({ message: 'Ошибка при получении предметов группы' });
   }
 };
 
@@ -86,6 +87,18 @@ const XLSX = require('xlsx');
 exports.exportGrades = async (req, res) => {
   try {
     const { group_id, subject_id } = req.query;
+
+    // Проверка что предмет действительно есть в группе
+    const [check] = await pool.query(`
+      SELECT 1 FROM group_subjects gs
+      JOIN course_subjects cs ON gs.course_subject_id = cs.course_subject_id
+      WHERE gs.group_id = ? AND cs.subject_id = ?
+      LIMIT 1
+    `, [group_id, subject_id]);
+    
+    if (check.length === 0) {
+      return res.status(400).json({ message: 'Предмет не найден в выбранной группе' });
+    }
 
     // Получаем данные (остаётся без изменений)
     const [grades] = await pool.query(`

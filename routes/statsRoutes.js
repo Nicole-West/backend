@@ -15,6 +15,10 @@ router.get('/subjects',
   statsController.getSubjects
 );
 
+router.get('/group-subjects',
+  statsController.getGroupSubjects
+);
+
 router.get('/export-grades', statsController.exportGrades);
 
 module.exports = router;
