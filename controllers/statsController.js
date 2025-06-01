@@ -149,13 +149,14 @@ exports.exportGrades = async (req, res) => {
       { wch: Math.max(...grades.map(row => row.full_name.length)) + 5 },  // Ширина для ФИО (макс. длина + запас)
       { wch: 10 }  // Ширина для оценки (10 символов)
     ];
-    
+
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Оценки');
 
     // 5. Генерируем имя файла (удаляем недопустимые символы)
-    const groupName = grades[0].group_number.replace(/[^\w-]/g, '_');
-    const subjectName = grades[0].subject_name.replace(/[^\w-]/g, '_');
-    const fileName = `Оценки_${groupName}_${subjectName}_${currentMonth[0].month}.xlsx`;
+    const groupName = grades[0].group_number.replace(/[^\wа-яА-Я-]/g, '_');
+    const subjectName = grades[0].subject_name.replace(/[^\wа-яА-Я-]/g, '_');
+    const monthName = (currentMonth[0].month).replace(/[^\wа-яА-Я-]/g, '_');
+    const fileName = `Оценки_${groupName}_${subjectName}_${monthName}.xlsx`;
 
     // 6. Отправляем файл
     res.setHeader(
@@ -164,7 +165,7 @@ exports.exportGrades = async (req, res) => {
     );
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${encodeURIComponent(fileName)}"`
+      `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`
     );
 
     const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' });
