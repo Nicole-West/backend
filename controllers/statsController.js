@@ -152,15 +152,11 @@ exports.exportGrades = async (req, res) => {
 
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Оценки');
 
-    // 5. Генерируем имя файла (удаляем недопустимые символы)
-    const groupName = grades[0].group_number.replace(/[^\wа-яА-Я-]/g, '_');
-    console.log(groupName)
-    const subjectName = grades[0].subject_name.replace(/[^\wа-яА-Я-]/g, '_');
-    console.log(subjectName)
-    const monthName = (currentMonth[0].month).replace(/[^\wа-яА-Я-]/g, '_');
-    console.log(monthName)
+    // 5. Генерируем имя файла
+    const groupName = (grades[0].group_number || 'группа').replace(/[^\wа-яА-Я-]/g, '_');
+    const subjectName = (grades[0].subject_name || 'предмет').replace(/[^\wа-яА-Я-]/g, '_');
+    const monthName = (currentMonth[0].month || 'месяц').replace(/[^\wа-яА-Я-]/g, '_');
     const fileName = `Оценки_${groupName}_${subjectName}_${monthName}.xlsx`;
-    console.log(fileName)
 
     // 6. Отправляем файл
     res.setHeader(
