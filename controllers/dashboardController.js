@@ -1,6 +1,7 @@
 const db = require('../db');
 
 exports.getDashboard = async (req, res) => {
+  console.log('start here')
   try {
     console.log('[GET] /api/dashboard');
 
