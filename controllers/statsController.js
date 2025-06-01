@@ -5,7 +5,7 @@ exports.getCurrentStats = async (req, res) => {
   console.log('[GET] /api/stats/current-zeros')
   try {
     const [results] = await pool.query('CALL get_current_attestation_stats()');
-
+    
     // console.log(results)
 
     // Исправляем обработку результатов
@@ -20,7 +20,7 @@ exports.getCurrentStats = async (req, res) => {
         failed_count: item.zero_count // переименовываем zero_count в failed_count
       }))
     });
-
+    
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Ошибка при получении статистики' });
@@ -31,7 +31,7 @@ exports.getGroupSubjects = async (req, res) => {
   try {
     console.log('[GET] /api/stats/group-subjects')
     const { group_id } = req.query;
-
+    
     const [subjects] = await pool.query(`
       SELECT DISTINCT s.subject_id, s.subject_name
       FROM group_subjects gs
@@ -43,7 +43,7 @@ exports.getGroupSubjects = async (req, res) => {
       AND gh.year_id = (SELECT year_id FROM academic_years WHERE is_current = TRUE)
       ORDER BY s.subject_name
     `, [group_id]);
-
+    
     res.json(subjects);
   } catch (err) {
     console.error(err);
@@ -169,7 +169,7 @@ exports.exportGrades = async (req, res) => {
     );
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename=` + fileName
+      `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`
     );
 
     const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' });
@@ -177,9 +177,9 @@ exports.exportGrades = async (req, res) => {
 
   } catch (err) {
     console.error('Ошибка экспорта:', err);
-    res.status(500).json({
+    res.status(500).json({ 
       message: 'Ошибка при экспорте оценок',
-      error: err.message
+      error: err.message 
     });
   }
 };
