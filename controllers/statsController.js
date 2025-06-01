@@ -169,7 +169,7 @@ exports.exportGrades = async (req, res) => {
     );
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${fileName}"`
+      `attachment; filename=` + fileName
     );
 
     const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' });
