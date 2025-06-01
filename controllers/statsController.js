@@ -154,9 +154,13 @@ exports.exportGrades = async (req, res) => {
 
     // 5. Генерируем имя файла (удаляем недопустимые символы)
     const groupName = grades[0].group_number.replace(/[^\wа-яА-Я-]/g, '_');
+    console.log(groupName)
     const subjectName = grades[0].subject_name.replace(/[^\wа-яА-Я-]/g, '_');
+    console.log(subjectName)
     const monthName = (currentMonth[0].month).replace(/[^\wа-яА-Я-]/g, '_');
+    console.log(monthName)
     const fileName = `Оценки_${groupName}_${subjectName}_${monthName}.xlsx`;
+    console.log(fileName)
 
     // 6. Отправляем файл
     res.setHeader(
