@@ -142,6 +142,14 @@ exports.exportGrades = async (req, res) => {
     // 4. Создаем книгу Excel
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.aoa_to_sheet(excelData);
+
+    // Устанавливаем ширину столбцов
+    worksheet['!cols'] = [
+      { wch: 5 },  // Ширина для колонки № (5 символов)
+      { wch: Math.max(...grades.map(row => row.full_name.length)) + 5 },  // Ширина для ФИО (макс. длина + запас)
+      { wch: 10 }  // Ширина для оценки (10 символов)
+    ];
+    
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Оценки');
 
     // 5. Генерируем имя файла (удаляем недопустимые символы)
