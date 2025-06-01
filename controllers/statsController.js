@@ -183,6 +183,7 @@ exports.exportGrades = async (req, res) => {
     const subjectName = (grades[0].subject_name || 'предмет').replace(/[^\wа-яА-Я-]/g, '_');
     const monthName = (currentMonth[0].month || 'месяц').replace(/[^\wа-яА-Я-]/g, '_');
     const fileName = `Оценки_${groupName}_${subjectName}_${monthName}.xlsx`;
+    fileName = fileName.replace(/[^а-яА-ЯёЁ\w\-\.]/g, '_');
 
     // Отправляем как бинарные данные с дополнительными заголовками
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
