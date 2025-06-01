@@ -104,14 +104,13 @@ exports.exportGrades = async (req, res) => {
       return res.status(400).json({ message: 'Нет текущего аттестационного месяца' });
     }
 
-    // 2. Получаем данные только за текущий месяц
+    // 2. Получаем данные
     const [grades] = await pool.query(`
       SELECT 
         s.full_name,
         g.grade,
         grp.group_number,
-        sub.subject_name,
-        am.month
+        sub.subject_name
       FROM grades g
       JOIN student_history sh ON g.student_history_id = sh.history_id
       JOIN students s ON sh.student_id = s.student_id
@@ -126,9 +125,13 @@ exports.exportGrades = async (req, res) => {
       ORDER BY s.full_name
     `, [group_id, subject_id, currentMonth[0].month_id]);
 
+    if (!grades.length) {
+      return res.status(404).json({ message: 'Нет данных для экспорта' });
+    }
+
     // 3. Подготовка данных для Excel
     const excelData = [
-      ['№', 'ФИО студента', 'Оценка'], // Только эти колонки
+      ['№', 'ФИО студента', 'Оценка'],
       ...grades.map((row, index) => [
         index + 1,
         row.full_name,
@@ -139,30 +142,31 @@ exports.exportGrades = async (req, res) => {
     // 4. Создаем книгу Excel
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.aoa_to_sheet(excelData);
-    
-    // Настройка ширины колонок
-    worksheet['!cols'] = [
-      { width: 5 },  // №
-      { width: 30 }, // ФИО
-      { width: 10 }  // Оценка
-    ];
-
-    // Формируем имя файла
-    const groupName = grades[0]?.group_number || 'группа';
-    const subjectName = grades[0]?.subject_name || 'предмет';
-    const month = currentMonth[0].month;
-    const fileName = `${groupName}_${subjectName}_${month}.xlsx`;
-
-    // 5. Генерируем и отправляем файл
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Оценки');
-    const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' });
 
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename=${fileName}`);
+    // 5. Генерируем имя файла (удаляем недопустимые символы)
+    const groupName = grades[0].group_number.replace(/[^\w-]/g, '_');
+    const subjectName = grades[0].subject_name.replace(/[^\w-]/g, '_');
+    const fileName = `Оценки_${groupName}_${subjectName}_${currentMonth[0].month}.xlsx`;
+
+    // 6. Отправляем файл
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${encodeURIComponent(fileName)}"`
+    );
+
+    const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' });
     res.send(excelBuffer);
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Ошибка при экспорте оценок' });
+    console.error('Ошибка экспорта:', err);
+    res.status(500).json({ 
+      message: 'Ошибка при экспорте оценок',
+      error: err.message 
+    });
   }
 };
