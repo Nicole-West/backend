@@ -7,7 +7,7 @@ exports.getDashboard = async (req, res) => {
 
     const [results] = await db.query('CALL get_dashboard_data()');
 
-    console.log(results);
+    // console.log(results);
 
     const [year, month, semester, groups] = results;
 

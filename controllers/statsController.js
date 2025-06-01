@@ -2,11 +2,11 @@
 const pool = require('../db');
 
 exports.getCurrentStats = async (req, res) => {
-  console.log('here start')
+  console.log('[GET] /api/stats/current-zeros')
   try {
     const [results] = await pool.query('CALL get_current_attestation_stats()');
     
-    console.log(results)
+    // console.log(results)
 
     // Исправляем обработку результатов
     res.json({
@@ -29,6 +29,7 @@ exports.getCurrentStats = async (req, res) => {
 
 exports.getGroupSubjects = async (req, res) => {
   try {
+    console.log('[GET] /api/stats/group-subjects')
     const { group_id } = req.query;
     
     const [subjects] = await pool.query(`
@@ -88,92 +89,76 @@ exports.exportGrades = async (req, res) => {
   try {
     const { group_id, subject_id } = req.query;
 
-    // Проверка что предмет действительно есть в группе
-    const [check] = await pool.query(`
-      SELECT 1 FROM group_subjects gs
-      JOIN course_subjects cs ON gs.course_subject_id = cs.course_subject_id
-      WHERE gs.group_id = ? AND cs.subject_id = ?
+    // 1. Получаем текущий аттестационный месяц
+    const [currentMonth] = await pool.query(`
+      SELECT am.month_id, am.month
+      FROM active_months am
+      JOIN academic_years ay ON am.year_id = ay.year_id
+      WHERE ay.is_current = TRUE
+      AND am.is_attestation_month = TRUE
+      ORDER BY am.month_id DESC
       LIMIT 1
-    `, [group_id, subject_id]);
-    
-    if (check.length === 0) {
-      return res.status(400).json({ message: 'Предмет не найден в выбранной группе' });
+    `);
+
+    if (!currentMonth.length) {
+      return res.status(400).json({ message: 'Нет текущего аттестационного месяца' });
     }
 
-    // Получаем данные (остаётся без изменений)
+    // 2. Получаем данные только за текущий месяц
     const [grades] = await pool.query(`
       SELECT 
-        s.student_id,
         s.full_name,
         g.grade,
-        am.month,
-        sub.subject_name,
         grp.group_number,
-        CONCAT(u.last_name, ' ', LEFT(u.first_name, 1), '.') as teacher_name
+        sub.subject_name,
+        am.month
       FROM grades g
       JOIN student_history sh ON g.student_history_id = sh.history_id
       JOIN students s ON sh.student_id = s.student_id
+      JOIN student_groups grp ON sh.group_id = grp.group_id
       JOIN group_subjects gs ON g.group_subject_id = gs.group_subject_id
       JOIN course_subjects cs ON gs.course_subject_id = cs.course_subject_id
       JOIN subjects sub ON cs.subject_id = sub.subject_id
-      JOIN student_groups grp ON sh.group_id = grp.group_id
       JOIN active_months am ON g.month_id = am.month_id
-      LEFT JOIN teacher_assignments ta ON ta.group_subject_id = gs.group_subject_id
-      LEFT JOIN teachers t ON ta.teacher_id = t.teacher_id
-      LEFT JOIN users u ON t.user_id = u.user_id
       WHERE sh.group_id = ?
       AND cs.subject_id = ?
-      ORDER BY s.full_name, am.month
-    `, [group_id, subject_id]);
+      AND g.month_id = ?
+      ORDER BY s.full_name
+    `, [group_id, subject_id, currentMonth[0].month_id]);
 
-    // Подготовка данных для Excel
+    // 3. Подготовка данных для Excel
     const excelData = [
-      ['№', 'Студент', 'Группа', 'Предмет', 'Месяц', 'Оценка', 'Преподаватель'],
+      ['№', 'ФИО студента', 'Оценка'], // Только эти колонки
       ...grades.map((row, index) => [
         index + 1,
         row.full_name,
-        row.group_number,
-        row.subject_name,
-        row.month,
-        row.grade === null ? 'Н/А' : row.grade,
-        row.teacher_name || 'Не указан'
+        row.grade === null ? 'Н/А' : row.grade
       ])
     ];
 
-    // Создаем книгу и лист
+    // 4. Создаем книгу Excel
     const workbook = XLSX.utils.book_new();
     const worksheet = XLSX.utils.aoa_to_sheet(excelData);
     
-    // Добавляем стили для заголовков
+    // Настройка ширины колонок
     worksheet['!cols'] = [
       { width: 5 },  // №
-      { width: 30 }, // Студент
-      { width: 15 }, // Группа
-      { width: 25 }, // Предмет
-      { width: 10 }, // Месяц
-      { width: 10 }, // Оценка
-      { width: 20 }  // Преподаватель
+      { width: 30 }, // ФИО
+      { width: 10 }  // Оценка
     ];
 
-    // Добавляем лист в книгу
+    // Формируем имя файла
+    const groupName = grades[0]?.group_number || 'группа';
+    const subjectName = grades[0]?.subject_name || 'предмет';
+    const month = currentMonth[0].month;
+    const fileName = `${groupName}_${subjectName}_${month}.xlsx`;
+
+    // 5. Генерируем и отправляем файл
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Оценки');
+    const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' });
 
-    // Генерируем бинарные данные
-    const excelBuffer = XLSX.write(workbook, {
-      bookType: 'xlsx',
-      type: 'buffer'
-    });
-
-    // Отправляем файл
-    res.setHeader(
-      'Content-Type',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    );
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename=grades_${group_id}_${subject_id}.xlsx`
-    );
-
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=${fileName}`);
     res.send(excelBuffer);
 
   } catch (err) {
