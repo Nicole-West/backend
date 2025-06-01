@@ -153,14 +153,14 @@ exports.exportGrades = async (req, res) => {
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Оценки');
 
     // 5. Генерируем имя файла (удаляем недопустимые символы)
-    const groupName = grades[0].group_number.replace(/[^\wа-яА-Я-]/g, '_');
-    console.log(groupName)
-    const subjectName = grades[0].subject_name.replace(/[^\wа-яА-Я-]/g, '_');
-    console.log(subjectName)
-    const monthName = (currentMonth[0].month).replace(/[^\wа-яА-Я-]/g, '_');
-    console.log(monthName)
-    const fileName = `Оценки_${groupName}_${subjectName}_${monthName}.xlsx`;
-    console.log(fileName)
+    // const groupName = grades[0].group_number.replace(/[^\wа-яА-Я-]/g, '_');
+    // console.log(groupName)
+    // const subjectName = grades[0].subject_name.replace(/[^\wа-яА-Я-]/g, '_');
+    // console.log(subjectName)
+    // const monthName = (currentMonth[0].month).replace(/[^\wа-яА-Я-]/g, '_');
+    // console.log(monthName)
+    // const fileName = `Оценки_${groupName}_${subjectName}_${monthName}.xlsx`;
+    // console.log(fileName)
 
     // // 6. Отправляем файл
     // res.setHeader(
@@ -176,18 +176,19 @@ exports.exportGrades = async (req, res) => {
     // res.send(excelBuffer);
 
     // 6. Подготовка данных для ответа
-    const responseData = {
-      excelBuffer: XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' }),
-      fileNameData: {
-        groupName: (grades[0].group_number || 'группа').replace(/[^\wа-яА-Я-]/g, '_'),
-        subjectName: (grades[0].subject_name || 'предмет').replace(/[^\wа-яА-Я-]/g, '_'),
-        monthName: (currentMonth[0].month || 'месяц').replace(/[^\wа-яА-Я-]/g, '_')
-      }
-    };
+    const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'buffer' });
 
-    // 7. Отправляем данные
-    res.setHeader('Content-Type', 'application/json');
-    res.send(responseData);
+    // Формируем имя файла
+    const groupName = (grades[0].group_number || 'группа').replace(/[^\wа-яА-Я-]/g, '_');
+    const subjectName = (grades[0].subject_name || 'предмет').replace(/[^\wа-яА-Я-]/g, '_');
+    const monthName = (currentMonth[0].month || 'месяц').replace(/[^\wа-яА-Я-]/g, '_');
+    const fileName = `Оценки_${groupName}_${subjectName}_${monthName}.xlsx`;
+
+    // Отправляем как бинарные данные с дополнительными заголовками
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('X-File-Name', encodeURIComponent(fileName)); // Дополнительный заголовок с именем
+    res.send(excelBuffer);
 
   } catch (err) {
     console.error('Ошибка экспорта:', err);
