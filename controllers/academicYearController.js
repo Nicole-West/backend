@@ -202,71 +202,56 @@ exports.getAcademicLeaveStudents = async (req, res) => {
 
 // Обработка решений по академотпускам
 exports.processAcademicLeaves = async (req, res) => {
-    const connection = await db.getConnection(); // Получаем соединение для транзакции
-    console.log('Обработка решений по академотпускам');
-    try {
-        const { yearId, decisions = [] } = req.body;
+  let connection;
+  try {
+    connection = await db.getConnection(); // Получаем соединение для транзакции
+    await connection.beginTransaction();
 
-        console.log(yearId);
-        console.log(decisions);
+    const { yearId, decisions = [] } = req.body;
 
-        await connection.beginTransaction(); // Начинаем транзакцию
+    for (const decision of decisions) {
+      if (decision.action === 'continue') {
+        await connection.query(`
+          UPDATE students 
+          SET status = 'studying' 
+          WHERE student_id = ?
+        `, [decision.student_id]);
 
-        console.log(decisions);
+        await connection.query(`
+          DELETE FROM academic_leaves 
+          WHERE student_id = ?
+        `, [decision.student_id]);
 
-        // 1. Обрабатываем решения по академам
-        for (const decision of decisions) {
-            console.log(decision);
-            if (decision.action === 'continue') {
-                // Возвращаем студента к обучению
-                await db.query(`
-                    UPDATE students 
-                    SET status = 'studying' 
-                    WHERE student_id = ?
-                `, [decision.student_id]);
-
-                await db.query(`
-                    DELETE FROM academic_leaves 
-                    WHERE student_id = ?
-                `, [decision.student_id]);
-            }
-            else if (decision.action === 'expel') {
-                // Отчисляем студента
-                await db.query(`
-                    UPDATE students 
-                    SET status = 'expelled' 
-                    WHERE student_id = ?
-                `, [decision.student_id]);
-            }
-            // Для продления академа ничего не делаем
-        }
-
-        // 2. Архивируем старые связи group_subjects
-        // await db.query(`
-        //     UPDATE group_subjects gs
-        //     JOIN group_history gh ON gs.group_id = gh.group_id
-        //     SET gs.status = 'archived'
-        //     WHERE gh.year_id = ?
-        // `, [yearId]);
-
-        await connection.commit(); // Подтверждаем транзакцию
-        connection.release(); // Освобождаем соединение
-
-        res.json({
-            success: true,
-            message: 'Решения по академотпускам применены'
-        });
-    } catch (err) {
-        await db.rollback();
-        console.error(err);
-        res.status(500).json({
-            success: false,
-            message: 'Ошибка при обработке решений'
-        });
-    } finally {
-        connection.release();
+      } else if (decision.action === 'expel') {
+        await connection.query(`
+          UPDATE students 
+          SET status = 'expelled' 
+          WHERE student_id = ?
+        `, [decision.student_id]);
+      }
+      // Для продления академа ничего не делаем
     }
+
+    // Если нужно, тут можно добавить запрос на архивирование групп
+
+    await connection.commit();
+    res.json({
+      success: true,
+      message: 'Решения по академотпускам применены'
+    });
+
+  } catch (err) {
+    if (connection) await connection.rollback();
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: 'Ошибка при обработке решений'
+    });
+  } finally {
+    if (connection) connection.release();
+  }
 };
+
 
 // Получение студентов для перевода
 exports.getContinuingStudents = async (req, res) => {
@@ -372,113 +357,107 @@ exports.getAvailableGroups = async (req, res) => {
 
 // новый год + обработка студентов
 exports.studentProcessing = async (req, res) => {
-    console.log('новый год + обработка студентов');
-    const connection = await db.getConnection();
-    try {
-        const { currentYearId, nextYear, transitions = [] } = req.body;
+  let connection;
+  try {
+    connection = await db.getConnection();
+    await connection.beginTransaction();
 
-        await connection.beginTransaction();
-        // console.log(transitions);
+    const { currentYearId, nextYear, transitions = [] } = req.body;
 
+    // 1. Создаем новый учебный год
+    const [newYear] = await connection.query(`
+      INSERT INTO academic_years (year, is_current)
+      VALUES (?, TRUE)
+    `, [nextYear]);
+    const newYearId = newYear.insertId;
+    console.log('done 1');
 
-        // 1. Создаем новый учебный год
-        const [newYear] = await db.query(`
-            INSERT INTO academic_years (year, is_current)
-            VALUES (?, TRUE)
-        `, [nextYear]);
-        const newYearId = newYear.insertId;
-        console.log('done 1');
+    // 2. Деактивируем старый год
+    await connection.query(`
+      UPDATE academic_years 
+      SET is_current = FALSE 
+      WHERE year_id = ?
+    `, [currentYearId]);
+    console.log('done 2');
 
-        // 2. Деактивируем старый год
-        await db.query(`
-            UPDATE academic_years 
-            SET is_current = FALSE 
-            WHERE year_id = ?
-        `, [currentYearId]);
-        console.log('done 2');
+    // 3. Архивируем старые записи student_history
+    await connection.query(`
+      UPDATE student_history
+      SET status = 'archived'
+      WHERE year_id = ?
+      AND status = 'active'
+    `, [currentYearId]);
+    console.log('done 3');
 
-        // 3. Архивируем старые записи student_history
-        await db.query(`
-            UPDATE student_history
-            SET status = 'archived'
-            WHERE year_id = ?
-            AND status = 'active'
-        `, [currentYearId]);
-        console.log('done 3');
+    // 4. Обрабатываем перевод студентов
+    for (const transition of transitions) {
+      if (transition.action === 'continue' || transition.action === 'transfer') {
+        const targetGroupId = transition.action === 'transfer'
+          ? transition.new_group_id
+          : transition.current_group_id;
 
-        // 4. Обрабатываем перевод студентов
-        for (const transition of transitions) {
-            if (transition.action === 'continue' || transition.action === 'transfer') {
-                const targetGroupId = transition.action === 'transfer'
-                    ? transition.new_group_id
-                    : transition.current_group_id;
+        await connection.query(`
+          INSERT INTO student_history 
+          (student_id, group_id, year_id, semester_id, status)
+          VALUES (?, ?, ?, 
+            (SELECT semester_id FROM semesters WHERE semester_number = '1'), 
+            'active')
+        `, [
+          transition.student_id,
+          targetGroupId,
+          newYearId
+        ]);
+      }
+      else if (transition.action === 'academic_leave') {
+        const [history] = await connection.query(`
+          INSERT INTO student_history 
+          (student_id, group_id, year_id, semester_id, status)
+          VALUES (?, ?, ?, 
+            (SELECT semester_id FROM semesters WHERE semester_number = '1'), 
+            'active')
+        `, [
+          transition.student_id,
+          transition.current_group_id,
+          newYearId
+        ]);
 
-                // Создаем новую запись в student_history
-                await db.query(`
-                    INSERT INTO student_history 
-                    (student_id, group_id, year_id, semester_id, status)
-                    VALUES (?, ?, ?, 
-                        (SELECT semester_id FROM semesters WHERE semester_number = '1'), 
-                        'active')
-                `, [
-                    transition.student_id,
-                    targetGroupId,
-                    newYearId
-                ]);
-            }
-            else if (transition.action === 'academic_leave') {
-                // Добавляем в академотпуск
-                const [history] = await db.query(`
-                    INSERT INTO student_history 
-                    (student_id, group_id, year_id, semester_id, status)
-                    VALUES (?, ?, ?, 
-                        (SELECT semester_id FROM semesters WHERE semester_number = '1'), 
-                        'active')
-                `, [
-                    transition.student_id,
-                    transition.current_group_id,
-                    newYearId
-                ]);
+        await connection.query(`
+          INSERT INTO academic_leaves (student_id, start_history_id)
+          VALUES (?, ?)
+        `, [transition.student_id, history.insertId]);
 
-                await db.query(`
-                    INSERT INTO academic_leaves (student_id, start_history_id)
-                    VALUES (?, ?)
-                `, [transition.student_id, history.insertId]);
-
-                await db.query(`
-                    UPDATE students 
-                    SET status = 'academic_leave' 
-                    WHERE student_id = ?
-                `, [transition.student_id]);
-            }
-            else if (transition.action === 'expel') {
-                // Отчисляем студента
-                await db.query(`
-                    UPDATE students 
-                    SET status = 'expelled' 
-                    WHERE student_id = ?
-                `, [transition.student_id]);
-            }
-        }
-        console.log('done 4');
-
-        await connection.commit();
-        connection.release();
-
-        res.json({
-            success: true,
-            message: 'Переход на новый учебный год успешно завершен'
-        });
-    } catch (err) {
-        await db.rollback();
-        console.error(err);
-        res.status(500).json({
-            success: false,
-            message: 'Ошибка при завершении перехода'
-        });
-    } finally {
-        connection.release();
+        await connection.query(`
+          UPDATE students 
+          SET status = 'academic_leave' 
+          WHERE student_id = ?
+        `, [transition.student_id]);
+      }
+      else if (transition.action === 'expel') {
+        await connection.query(`
+          UPDATE students 
+          SET status = 'expelled' 
+          WHERE student_id = ?
+        `, [transition.student_id]);
+      }
     }
+    console.log('done 4');
+
+    await connection.commit();
+    res.json({
+      success: true,
+      message: 'Переход на новый учебный год успешно завершен'
+    });
+
+  } catch (err) {
+    if (connection) await connection.rollback();
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: 'Ошибка при завершении перехода'
+    });
+  } finally {
+    if (connection) connection.release();
+  }
 };
 
 
@@ -491,68 +470,68 @@ const validateGroupName = (name) => {
 
 // Добавление группы вручную
 exports.addManualGroup = async (req, res) => {
-    const connection = await db.getConnection();
-    try {
-        await connection.beginTransaction();
+  let connection;
+  try {
+    connection = await db.getConnection();
+    await connection.beginTransaction();
 
-        const { groupName, students, yearId } = req.body;
+    const { groupName, students, yearId } = req.body;
 
-        const [year] = await connection.query(`
-            select year_id from academic_years where is_current = true;
-        `, []);
+    const [year] = await connection.query(`
+      SELECT year_id FROM academic_years WHERE is_current = TRUE;
+    `);
 
-        const year_id = year[0].year_id;
+    const year_id = year[0].year_id;
 
-        // 1. Проверяем название группы
-        if (!validateGroupName(groupName)) {
-            throw new Error('Некорректное название группы');
-        }
-
-        // 2. Создаем новую группу
-        const [group] = await connection.query(`
-            INSERT INTO student_groups (group_number, status)
-            VALUES (?, 'active')
-        `, [groupName]);
-
-        // 3. Добавляем группу в историю (1 курс, 1 семестр)
-        await connection.query(`
-            INSERT INTO group_history (group_id, year_id, semester_id, course_id)
-            VALUES (?, ?, 
-                (SELECT semester_id FROM semesters WHERE semester_number = '1'),
-                (SELECT course_id FROM courses WHERE course_name = 'Бакалавриат 1 курс')
-            )
-        `, [group.insertId, year_id]);
-
-        // 4. Добавляем студентов
-        for (const studentName of students) {
-            const [student] = await connection.query(`
-                INSERT INTO students (full_name, status)
-                VALUES (?, 'studying')
-            `, [studentName]);
-
-            await connection.query(`
-                INSERT INTO student_history (student_id, group_id, year_id, semester_id, status)
-                VALUES (?, ?, ?, 
-                    (SELECT semester_id FROM semesters WHERE semester_number = '1'), 
-                    'active')
-            `, [student.insertId, group.insertId, year_id]);
-        }
-
-        await connection.commit();
-        connection.release();
-
-        res.json({ success: true, groupId: group.insertId });
-    } catch (err) {
-        await connection.rollback();
-        connection.release();
-        console.error(err);
-        res.status(500).json({
-            success: false,
-            message: err.message || 'Ошибка при создании группы'
-        });
-    } finally {
-        connection.release();
+    // 1. Проверяем название группы
+    if (!validateGroupName(groupName)) {
+      throw new Error('Некорректное название группы');
     }
+
+    // 2. Создаем новую группу
+    const [group] = await connection.query(`
+      INSERT INTO student_groups (group_number, status)
+      VALUES (?, 'active')
+    `, [groupName]);
+
+    // 3. Добавляем группу в историю (1 курс, 1 семестр)
+    await connection.query(`
+      INSERT INTO group_history (group_id, year_id, semester_id, course_id)
+      VALUES (?, ?, 
+        (SELECT semester_id FROM semesters WHERE semester_number = '1'),
+        (SELECT course_id FROM courses WHERE course_name = 'Бакалавриат 1 курс')
+      )
+    `, [group.insertId, year_id]);
+
+    // 4. Добавляем студентов
+    for (const studentName of students) {
+      const [student] = await connection.query(`
+        INSERT INTO students (full_name, status)
+        VALUES (?, 'studying')
+      `, [studentName]);
+
+      await connection.query(`
+        INSERT INTO student_history (student_id, group_id, year_id, semester_id, status)
+        VALUES (?, ?, ?, 
+          (SELECT semester_id FROM semesters WHERE semester_number = '1'), 
+          'active')
+      `, [student.insertId, group.insertId, year_id]);
+    }
+
+    await connection.commit();
+
+    res.json({ success: true, groupId: group.insertId });
+
+  } catch (err) {
+    if (connection) await connection.rollback();
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: err.message || 'Ошибка при создании группы'
+    });
+  } finally {
+    if (connection) connection.release();
+  }
 };
 
 // Парсинг Excel файла
@@ -606,188 +585,184 @@ exports.parseExcelGroup = async (req, res) => {
 
 
 exports.completeTransition = async (req, res) => {
-    console.log('начало:');
-    const connection = await db.getConnection();
-    try {
-        await connection.beginTransaction();
+  let connection;
+  try {
+    connection = await db.getConnection();
+    await connection.beginTransaction();
 
-        const { currentYearId, nextYear } = req.body;
-        console.log(currentYearId);
-        console.log(nextYear);
+    const { currentYearId, nextYear } = req.body;
+    console.log(currentYearId);
+    console.log(nextYear);
 
-        // 1. Архивируем старые связи group_subjects
-        await connection.query(`
-            UPDATE group_subjects
-            SET status = 'archived'
-            WHERE group_id IN (
-                SELECT group_id FROM group_history 
-                WHERE year_id = ?
-            )
-        `, [currentYearId]);
+    // 1. Архивируем старые связи group_subjects
+    await connection.query(`
+      UPDATE group_subjects
+      SET status = 'archived'
+      WHERE group_id IN (
+        SELECT group_id FROM group_history 
+        WHERE year_id = ?
+      )
+    `, [currentYearId]);
 
-        // 2. Добавляем новые связи group_subjects для нового года
-        const [year_for_id] = await connection.query(
-            'SELECT year_id FROM academic_years WHERE year = ? LIMIT 1',
-            [nextYear]
-        );
+    // 2. Получаем новый год
+    const [year_for_id] = await connection.query(
+      'SELECT year_id FROM academic_years WHERE year = ? LIMIT 1',
+      [nextYear]
+    );
 
-        if (!year_for_id.length) {
-            throw new Error('Новый учебный год не найден');
-        }
-        const newYearId_ = year_for_id[0].year_id;
-        console.log(newYearId_);
-
-        await connection.query(`
-            INSERT INTO group_history (group_id, year_id, semester_id, course_id)
-            SELECT 
-                gh.group_id,
-                ?,
-                (SELECT semester_id FROM semesters WHERE semester_number = '1'),
-                (SELECT course_id FROM courses WHERE course_name = 
-                    CASE c.course_name
-                        WHEN 'Бакалавриат 1 курс' THEN 'Бакалавриат 2 курс'
-                        WHEN 'Бакалавриат 2 курс' THEN 'Бакалавриат 3 курс'
-                        WHEN 'Бакалавриат 3 курс' THEN 'Бакалавриат 4 курс'
-                        WHEN 'Магистратура 1 курс' THEN 'Магистратура 2 курс'
-                    END)
-            FROM group_history gh
-            JOIN courses c ON gh.course_id = c.course_id
-            WHERE gh.year_id = ?
-            AND c.course_name IN ('Бакалавриат 1 курс', 'Бакалавриат 2 курс', 'Бакалавриат 3 курс', 'Магистратура 1 курс')
-            GROUP BY gh.group_id, c.course_id
-        `, [newYearId_, currentYearId]);
-
-        await connection.query(`
-            INSERT INTO group_subjects (group_id, course_subject_id, status)
-            SELECT 
-                gh.group_id,
-                cs.course_subject_id,
-                'active'
-            FROM group_history gh
-            JOIN courses new_c ON gh.course_id = new_c.course_id
-            JOIN course_subjects cs ON cs.course_id = new_c.course_id
-                AND cs.semester_id = (
-                    SELECT semester_id 
-                    FROM semesters 
-                    WHERE semester_number = '1'
-                )
-            WHERE gh.year_id = ?
-            AND NOT EXISTS (
-                SELECT 1 
-                FROM group_subjects gs 
-                WHERE gs.group_id = gh.group_id 
-                AND gs.course_subject_id = cs.course_subject_id
-            )
-        `, [newYearId_]);
-
-        // 3. Создаем новый аттестационный месяц (сентябрь)
-
-        const [year] = await connection.query(`
-            SELECT year_id FROM academic_years 
-            WHERE year = ?
-            LIMIT 1
-        `, [nextYear]);
-
-        if (!year.length) {
-            throw new Error('Новый учебный год не найден');
-        }
-        const newYearId = year[0].year_id;
-
-        const [newMonth] = await connection.query(`
-            INSERT INTO active_months 
-            (year_id, month, is_attestation_month)
-            VALUES (?, '9', TRUE)
-        `, [newYearId]);
-
-        // 4. Деактивируем прошлый аттестационный месяц
-        await connection.query(`
-            UPDATE active_months
-            SET is_attestation_month = FALSE
-            WHERE year_id = ? AND is_attestation_month = TRUE
-        `, [currentYearId]);
-        console.log('done 4 active_months');
-
-        // 5. Возвращаем список преподавателей для назначения
-        const [teachers] = await connection.query(`
-            SELECT t.teacher_id, u.user_id, 
-                   CONCAT(u.last_name, ' ', u.first_name, ' ', IFNULL(u.middle_name, '')) AS full_name
-            FROM teachers t
-            JOIN users u ON t.user_id = u.user_id
-        `);
-
-        // console.log(teachers);
-
-        // 6. Возвращаем список предметов для назначения
-        const [subjects] = await connection.query(`
-            SELECT s.subject_id, s.subject_name
-            FROM subjects s
-            JOIN course_subjects cs ON s.subject_id = cs.subject_id
-            JOIN group_subjects gs ON cs.course_subject_id = gs.course_subject_id
-            WHERE gs.status = 'active'
-        `);
-        console.log(subjects);
-
-        await connection.commit();
-        connection.release();
-
-        res.json({
-            success: true,
-            data: {
-                teachers,
-                subjects
-            }
-        });
-
-    } catch (err) {
-        await connection.rollback();
-        connection.release();
-        console.error(err);
-        res.status(500).json({
-            success: false,
-            message: 'Ошибка при завершении перехода'
-        });
-    } finally {
-        connection.release();
+    if (!year_for_id.length) {
+      throw new Error('Новый учебный год не найден');
     }
+    const newYearId_ = year_for_id[0].year_id;
+    console.log(newYearId_);
+
+    // 3. Добавляем новые связи group_history
+    await connection.query(`
+      INSERT INTO group_history (group_id, year_id, semester_id, course_id)
+      SELECT 
+        gh.group_id,
+        ?,
+        (SELECT semester_id FROM semesters WHERE semester_number = '1'),
+        (SELECT course_id FROM courses WHERE course_name = 
+          CASE c.course_name
+            WHEN 'Бакалавриат 1 курс' THEN 'Бакалавриат 2 курс'
+            WHEN 'Бакалавриат 2 курс' THEN 'Бакалавриат 3 курс'
+            WHEN 'Бакалавриат 3 курс' THEN 'Бакалавриат 4 курс'
+            WHEN 'Магистратура 1 курс' THEN 'Магистратура 2 курс'
+          END)
+      FROM group_history gh
+      JOIN courses c ON gh.course_id = c.course_id
+      WHERE gh.year_id = ?
+      AND c.course_name IN ('Бакалавриат 1 курс', 'Бакалавриат 2 курс', 'Бакалавриат 3 курс', 'Магистратура 1 курс')
+      GROUP BY gh.group_id, c.course_id
+    `, [newYearId_, currentYearId]);
+
+    // 4. Добавляем новые связи group_subjects
+    await connection.query(`
+      INSERT INTO group_subjects (group_id, course_subject_id, status)
+      SELECT 
+        gh.group_id,
+        cs.course_subject_id,
+        'active'
+      FROM group_history gh
+      JOIN courses new_c ON gh.course_id = new_c.course_id
+      JOIN course_subjects cs ON cs.course_id = new_c.course_id
+        AND cs.semester_id = (
+          SELECT semester_id 
+          FROM semesters 
+          WHERE semester_number = '1'
+        )
+      WHERE gh.year_id = ?
+      AND NOT EXISTS (
+        SELECT 1 
+        FROM group_subjects gs 
+        WHERE gs.group_id = gh.group_id 
+        AND gs.course_subject_id = cs.course_subject_id
+      )
+    `, [newYearId_]);
+
+    // 5. Создаем новый аттестационный месяц (сентябрь)
+    const [year] = await connection.query(`
+      SELECT year_id FROM academic_years 
+      WHERE year = ?
+      LIMIT 1
+    `, [nextYear]);
+
+    if (!year.length) {
+      throw new Error('Новый учебный год не найден');
+    }
+    const newYearId = year[0].year_id;
+
+    const [newMonth] = await connection.query(`
+      INSERT INTO active_months 
+      (year_id, month, is_attestation_month)
+      VALUES (?, '9', TRUE)
+    `, [newYearId]);
+
+    // 6. Деактивируем прошлый аттестационный месяц
+    await connection.query(`
+      UPDATE active_months
+      SET is_attestation_month = FALSE
+      WHERE year_id = ? AND is_attestation_month = TRUE
+    `, [currentYearId]);
+    console.log('done 4 active_months');
+
+    // 7. Получаем список преподавателей
+    const [teachers] = await connection.query(`
+      SELECT t.teacher_id, u.user_id, 
+             CONCAT(u.last_name, ' ', u.first_name, ' ', IFNULL(u.middle_name, '')) AS full_name
+      FROM teachers t
+      JOIN users u ON t.user_id = u.user_id
+    `);
+
+    // 8. Получаем список предметов
+    const [subjects] = await connection.query(`
+      SELECT s.subject_id, s.subject_name
+      FROM subjects s
+      JOIN course_subjects cs ON s.subject_id = cs.subject_id
+      JOIN group_subjects gs ON cs.course_subject_id = gs.course_subject_id
+      WHERE gs.status = 'active'
+    `);
+    console.log(subjects);
+
+    await connection.commit();
+
+    res.json({
+      success: true,
+      data: {
+        teachers,
+        subjects
+      }
+    });
+
+  } catch (err) {
+    if (connection) await connection.rollback();
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: 'Ошибка при завершении перехода'
+    });
+  } finally {
+    if (connection) connection.release();
+  }
 };
 
 exports.assignTeachers = async (req, res) => {
-    const connection = await db.getConnection();
-    try {
-        await connection.beginTransaction();
+  let connection;
+  try {
+    connection = await db.getConnection();
+    await connection.beginTransaction();
 
-        const { assignments = [] } = req.body;
+    const { assignments = [] } = req.body;
 
-        console.log(assignments);
+    console.log(assignments);
 
-        // Назначаем преподавателей
-        for (const assignment of assignments) {
-            await db.query(`
-                INSERT INTO teacher_assignments 
-                (teacher_id, group_subject_id)
-                VALUES (?, ?)
-            `, [
-                assignment.teacher_id,
-                assignment.group_subject_id
-            ]);
-        }
-
-        await connection.commit();
-        connection.release();
-
-        res.json({ success: true });
-
-    } catch (err) {
-        await connection.rollback();
-        connection.release();
-        console.error(err);
-        res.status(500).json({
-            success: false,
-            message: 'Ошибка при назначении преподавателей'
-        });
-    } finally {
-        connection.release();
+    // Назначаем преподавателей
+    for (const assignment of assignments) {
+      await connection.query(`
+        INSERT INTO teacher_assignments 
+        (teacher_id, group_subject_id)
+        VALUES (?, ?)
+      `, [
+        assignment.teacher_id,
+        assignment.group_subject_id
+      ]);
     }
+
+    await connection.commit();
+
+    res.json({ success: true });
+
+  } catch (err) {
+    if (connection) await connection.rollback();
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: 'Ошибка при назначении преподавателей'
+    });
+  } finally {
+    if (connection) connection.release();
+  }
 };
 
 exports.getActiveGroupSubjects = async (req, res) => {
@@ -814,72 +789,70 @@ exports.getActiveGroupSubjects = async (req, res) => {
 };
 
 exports.initializeGrades = async (req, res) => {
-    const connection = await db.getConnection();
-    try {
-        await connection.beginTransaction();
+  let connection;
+  try {
+    connection = await db.getConnection();
+    await connection.beginTransaction();
 
-        const { yearId } = req.body;
+    const { yearId } = req.body;
 
-        const [year] = await connection.query(`
-            select year_id from academic_years where is_current = true;
-        `, []);
+    const [year] = await connection.query(`
+      SELECT year_id FROM academic_years WHERE is_current = true;
+    `);
 
-        const year_id = year[0].year_id;
-
-        // 1. Получаем активный месяц (сентябрь)
-        const [month] = await connection.query(`
-            select month_id, month FROM active_months WHERE is_attestation_month = true;
-        `, [yearId]);
-
-        console.log(year_id);
-
-        if (!month.length) {
-            throw new Error('Активный месяц не найден');
-        }
-        const monthId = month[0].month_id;
-        const month_ = month[0].month;
-
-        console.log(monthId);
-        console.log(month_);
-
-        // 2. Добавляем пустые оценки для всех активных студентов
-        await connection.query(`
-            INSERT INTO grades (student_history_id, group_subject_id, month_id, last_edited_by, grade)
-            SELECT 
-                sh.history_id,
-                gs.group_subject_id,
-                ?,
-                NULL, -- Пока никто не редактировал
-                NULL  -- Пустая оценка
-            FROM student_history sh
-            JOIN group_subjects gs ON sh.group_id = gs.group_id
-            JOIN active_months am ON am.year_id = sh.year_id AND am.month = ?
-            WHERE sh.year_id = ?
-            AND sh.status = 'active'
-            AND gs.status = 'active'
-            AND NOT EXISTS (
-                SELECT 1 
-                FROM grades g
-                WHERE g.student_history_id = sh.history_id
-                AND g.group_subject_id = gs.group_subject_id
-                AND g.month_id = ?
-            )
-        `, [monthId, month_, year_id, monthId]);
-
-        await connection.commit();
-        connection.release();
-
-        res.json({ success: true });
-
-    } catch (err) {
-        await connection.rollback();
-        connection.release();
-        console.error(err);
-        res.status(500).json({
-            success: false,
-            message: err.message || 'Ошибка при инициализации оценок'
-        });
-    } finally {
-        connection.release();
+    if (!year.length) {
+      throw new Error('Текущий учебный год не найден');
     }
+
+    const year_id = year[0].year_id;
+
+    // Получаем активный месяц (сентябрь)
+    const [month] = await connection.query(`
+      SELECT month_id, month FROM active_months WHERE is_attestation_month = true;
+    `);
+
+    if (!month.length) {
+      throw new Error('Активный месяц не найден');
+    }
+
+    const monthId = month[0].month_id;
+    const month_ = month[0].month;
+
+    // Добавляем пустые оценки для всех активных студентов
+    await connection.query(`
+      INSERT INTO grades (student_history_id, group_subject_id, month_id, last_edited_by, grade)
+      SELECT 
+          sh.history_id,
+          gs.group_subject_id,
+          ?,
+          NULL,
+          NULL
+      FROM student_history sh
+      JOIN group_subjects gs ON sh.group_id = gs.group_id
+      JOIN active_months am ON am.year_id = sh.year_id AND am.month = ?
+      WHERE sh.year_id = ?
+      AND sh.status = 'active'
+      AND gs.status = 'active'
+      AND NOT EXISTS (
+          SELECT 1 
+          FROM grades g
+          WHERE g.student_history_id = sh.history_id
+          AND g.group_subject_id = gs.group_subject_id
+          AND g.month_id = ?
+      )
+    `, [monthId, month_, year_id, monthId]);
+
+    await connection.commit();
+    res.json({ success: true });
+
+  } catch (err) {
+    if (connection) await connection.rollback();
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: err.message || 'Ошибка при инициализации оценок'
+    });
+  } finally {
+    if (connection) connection.release();
+  }
 };
