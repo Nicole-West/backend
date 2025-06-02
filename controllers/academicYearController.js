@@ -263,6 +263,8 @@ exports.processAcademicLeaves = async (req, res) => {
             success: false,
             message: 'Ошибка при обработке решений'
         });
+    } finally {
+        connection.release();
     }
 };
 
@@ -474,6 +476,8 @@ exports.studentProcessing = async (req, res) => {
             success: false,
             message: 'Ошибка при завершении перехода'
         });
+    } finally {
+        connection.release();
     }
 };
 
@@ -546,6 +550,8 @@ exports.addManualGroup = async (req, res) => {
             success: false,
             message: err.message || 'Ошибка при создании группы'
         });
+    } finally {
+        connection.release();
     }
 };
 
@@ -740,6 +746,8 @@ exports.completeTransition = async (req, res) => {
             success: false,
             message: 'Ошибка при завершении перехода'
         });
+    } finally {
+        connection.release();
     }
 };
 
@@ -777,6 +785,8 @@ exports.assignTeachers = async (req, res) => {
             success: false,
             message: 'Ошибка при назначении преподавателей'
         });
+    } finally {
+        connection.release();
     }
 };
 
@@ -828,7 +838,7 @@ exports.initializeGrades = async (req, res) => {
         }
         const monthId = month[0].month_id;
         const month_ = month[0].month;
-        
+
         console.log(monthId);
         console.log(month_);
 
@@ -869,5 +879,7 @@ exports.initializeGrades = async (req, res) => {
             success: false,
             message: err.message || 'Ошибка при инициализации оценок'
         });
+    } finally {
+        connection.release();
     }
 };
