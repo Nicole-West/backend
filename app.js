@@ -14,7 +14,14 @@ const statsRoutes = require('./routes/statsRoutes');
 
 const app = express();
 
-app.use(cors());
+// app.use(cors());
+app.use(cors({
+  origin: 'https://vue-app-i40o.onrender.com', // Your frontend URL
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true // If you're using cookies/tokens
+}));
+app.options('*', cors());
 app.use(bodyParser.json());
 
 // app.use((req, res, next) => {
