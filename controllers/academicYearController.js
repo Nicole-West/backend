@@ -473,7 +473,9 @@ exports.studentProcessing = async (req, res) => {
     connection = await db.getConnection();
     await connection.beginTransaction();
 
-    const { currentYearId, nextYear, transitions = [] } = req.body;
+    const { newYearIdreq, nextYear, transitions = [] } = req.body;
+
+    const currentYearId = newYearIdreq - 1;
 
     // 1. Создаем новый учебный год
     const [newYear] = await connection.query(`
