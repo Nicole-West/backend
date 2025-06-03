@@ -481,7 +481,7 @@ exports.studentProcessing = async (req, res) => {
     );
 
     const currentYearId = currentYear[0].year_id;
-    console.log(transitions)
+    // console.log(transitions)
 
 
     // 1. Создаем новый учебный год
@@ -557,9 +557,9 @@ exports.studentProcessing = async (req, res) => {
 
         // const lastHistory = rows[0];
 
-        // console.log('rows', rows)
-        // console.log('rows[0]', rows[0])
-        // console.log('rows[0].history_id', rows[0].history_id)
+        console.log('rows', rows)
+        console.log('rows[0]', rows[0])
+        console.log('rows[0].history_id', rows[0].history_id)
 
         if (!lastHistory) {
           throw new Error(`Активная запись в student_history не найдена для студента ID ${transition.student_id}`);
