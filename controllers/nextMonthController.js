@@ -40,39 +40,40 @@ exports.moveToNextMonth = async (req, res) => {
       ORDER BY month DESC
       LIMIT 1
     `, [currentYearId]);
-    const currentMonth = parseInt(monthRows[0].month);
+
+    if (!monthRows.length) {
+      return res.status(400).json({ error: 'Не найден текущий месяц' });
+    }
+
+    const currentMonth = monthRows[0].month;
+
     const currentMonthId = monthRows[0].month_id;
 
-    console.log(currentMonth);
+    console.log('Текущий месяц:', currentMonth);
 
     // Проверки на крайние месяцы
-    if (currentMonth === 12) {
+    if (currentMonth === '12') {
       return res.status(400).json({
         error: 'Перевод невозможен. Рекомендуется перейти на следующий семестр.'
       });
     }
 
-    if (currentMonth === 5) {
+    if (currentMonth === '5') {
       return res.status(400).json({
         error: 'Перевод невозможен. Рекомендуется начать новый учебный год.'
       });
     }
 
     let nextMonth;
-    if (currentMonth === 2) nextMonth = '3';
-    else if (currentMonth === 3) nextMonth = '4';
-    else if (currentMonth === 4) nextMonth = '5';
-    else if (currentMonth === 5) nextMonth = '9';
-    else if (currentMonth === 9) nextMonth = '10';
-    else if (currentMonth === 10) nextMonth = '11';
-    else if (currentMonth === 11) nextMonth = '12';
-    else if (currentMonth === 12) nextMonth = '2';
+    if (currentMonth === '2') nextMonth = '3';
+    else if (currentMonth === '3') nextMonth = '4';
+    else if (currentMonth === '4') nextMonth = '5';
+    else if (currentMonth === '9') nextMonth = '10';
+    else if (currentMonth === '10') nextMonth = '11';
+    else if (currentMonth === '11') nextMonth = '12';
     else throw new Error('Некорректный текущий месяц: ' + currentMonth);
 
-    console.log(nextMonth);
-
-
-    const needChangeSemester = (currentMonth === 5 || currentMonth === 12);
+    console.log('Следующий месяц:', nextMonth);
 
     await db.query(`
       UPDATE active_months
@@ -120,8 +121,8 @@ exports.moveToNextMonth = async (req, res) => {
       needChangeSemester
     });
   } catch (err) {
-    console.error('1 Ошибка при переходе на следующий месяц:', err);
-    res.status(500).json({ error: '2 Ошибка при переходе на следующий месяц' });
+    console.error('Ошибка при переходе на следующий месяц:', err);
+    res.status(500).json({ error: 'Ошибка при переходе на следующий месяц' });
   }
 };
 
