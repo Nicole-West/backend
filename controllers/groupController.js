@@ -34,7 +34,7 @@ exports.getSubjectsByGroupIdAndTeacherId = async (req, res) => {
 
     if (isSeniorTeacher) {
       query = `
-          SELECT s.subject_id, s.subject_name
+          SELECT DISTINCT s.subject_id, s.subject_name
           FROM subjects s
           JOIN course_subjects cs ON s.subject_id = cs.subject_id
           JOIN group_subjects gs ON cs.course_subject_id = gs.course_subject_id
@@ -49,7 +49,7 @@ exports.getSubjectsByGroupIdAndTeacherId = async (req, res) => {
       params = [groupId];
     } else {
       query = `
-          SELECT s.subject_id, s.subject_name
+          SELECT DISTINCT s.subject_id, s.subject_name
           FROM subjects s
           JOIN course_subjects cs ON s.subject_id = cs.subject_id
           JOIN group_subjects gs ON cs.course_subject_id = gs.course_subject_id
@@ -58,7 +58,7 @@ exports.getSubjectsByGroupIdAndTeacherId = async (req, res) => {
           JOIN group_history gh ON gs.group_id = gh.group_id
           JOIN academic_years ay ON gh.year_id = ay.year_id
           WHERE 
-              t.teacher_id = ?
+              t.user_id = ?
               AND gs.group_id = ?
               AND gs.status = 'active'
               AND ay.is_current = TRUE
