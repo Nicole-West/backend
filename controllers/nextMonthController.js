@@ -65,7 +65,7 @@ exports.moveToNextMonth = async (req, res) => {
     // Проверка на конец семестра
     if (currentMonth === '5' || currentMonth === '12') {
       return res.status(400).json({
-        error: 'Перевод невозможен. Рекомендуется перейти на следующий семестр.',
+        error: 'Перевод невозможен. Рекомендуется перейти на следующий семестр/год.',
         needSemesterChange: true
       });
     }
