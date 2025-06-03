@@ -18,6 +18,7 @@ router.post('/students/process-academic-leaves', checkAdmin, academicYearControl
 router.get('/students/continuing/:yearId', checkAdmin, academicYearController.getContinuingStudents);
 router.get('/groups/available/:yearId', checkAdmin, academicYearController.getAvailableGroups);
 router.post('/student-processing', checkAdmin, academicYearController.studentProcessing);
+router.get('/available-groups-academic-leave', checkAdmin, academicYearController.getAvailableGroupsForAcademicLeave);
 
 router.post('/process-academic-leaves', checkAdmin, academicYearController.processAcademicLeaves);
 router.post('/groups/manual', checkAdmin, upload.none(), academicYearController.addManualGroup);
