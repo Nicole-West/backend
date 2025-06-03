@@ -44,7 +44,7 @@ exports.getGraduatingStudents = async (req, res) => {
 
     // Получаем группы выпускников (4 курс бакалавриата и 2 курс магистратуры)
     const [groups] = await db.query(`
-            SELECT 
+            SELECT DISTINCT 
                 sg.group_id,
                 sg.group_number,
                 c.course_name
