@@ -250,16 +250,17 @@ exports.getAvailableGroups2 = async (req, res) => {
     
     const [groups] = await db.query(
       `SELECT 
-        sg.group_id,
-        sg.group_number,
-        c.course_name,
-        c.course_id
-      FROM group_history gh
-      JOIN student_groups sg ON gh.group_id = sg.group_id
-      JOIN courses c ON gh.course_id = c.course_id
-      WHERE gh.year_id = ?
-      AND sg.status = 'active'
-      ORDER BY c.course_name, sg.group_number`,
+                sg.group_id,
+                sg.group_number,
+                c.course_name,
+                c.course_id
+            FROM group_history gh
+            JOIN student_groups sg ON gh.group_id = sg.group_id
+            JOIN courses c ON gh.course_id = c.course_id
+            WHERE gh.year_id = ?
+            AND sg.status = 'active'
+            AND c.course_name NOT IN ('Бакалавриат 4 курс', 'Магистратура 2 курс')
+      `,
       [yearId]
     );
 
