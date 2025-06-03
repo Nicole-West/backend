@@ -243,6 +243,39 @@ exports.getAcademicLeaveStudents = async (req, res) => {
   }
 };
 
+// Получение списка групп для перевода (добавить в controllers)
+exports.getAvailableGroups2 = async (req, res) => {
+  try {
+    const { yearId } = req.params;
+    
+    const [groups] = await db.query(
+      `SELECT 
+        sg.group_id,
+        sg.group_number,
+        c.course_name,
+        c.course_id
+      FROM group_history gh
+      JOIN student_groups sg ON gh.group_id = sg.group_id
+      JOIN courses c ON gh.course_id = c.course_id
+      WHERE gh.year_id = ?
+      AND sg.status = 'active'
+      ORDER BY c.course_name, sg.group_number`,
+      [yearId]
+    );
+
+    res.json({
+      success: true,
+      data: groups
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: 'Ошибка при получении списка групп'
+    });
+  }
+};
+
 // Обработка решений по академотпускам
 exports.processAcademicLeaves = async (req, res) => {
   let connection;
