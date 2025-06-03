@@ -549,10 +549,9 @@ exports.studentProcessing = async (req, res) => {
           LIMIT 1
         `, [transition.student_id, currentYearId]);
 
-        console.log('currentYearId', currentYearId)
-        console.log('history_id', lastHistory.history_id)
-        console.log('lastHistory', lastHistory)
-        
+        console.log('transition.student_id', transition.student_id)
+        // console.log('lastHistory', lastHistory)
+
         if (!lastHistory) {
           throw new Error(`Активная запись в student_history не найдена для студента ID ${transition.student_id}`);
         }
