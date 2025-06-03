@@ -100,9 +100,8 @@ exports.processTransition = async (req, res) => {
 
     // Инициализируем repeatStudents как пустой массив, если он равен null или не определен
     const studentsToRepeat = Array.isArray(repeatStudents) ? repeatStudents : [];
-
     // 1. Обновляем статусы выпускников
-    await connection.query(`
+    const statusUpdateQuery = `
       UPDATE students s
       JOIN student_history sh ON s.student_id = sh.student_id
       JOIN group_history gh ON sh.group_id = gh.group_id
@@ -113,7 +112,12 @@ exports.processTransition = async (req, res) => {
       END
       WHERE gh.year_id = ?
       AND c.course_name IN ('Бакалавриат 4 курс', 'Магистратура 2 курс')
-    `, [studentsToRepeat.length > 0 ? 1 : 0, studentsToRepeat, currentYearId]);
+    `;
+    if (studentsToRepeat.length > 0) {
+      await connection.query(statusUpdateQuery, [1, studentsToRepeat, currentYearId]);
+    } else {
+      await connection.query(statusUpdateQuery, [null, [], currentYearId]);
+    }
 
     // 2. Архивируем записи выпускников
     await connection.query(`
