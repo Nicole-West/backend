@@ -101,22 +101,27 @@ exports.processTransition = async (req, res) => {
     // Инициализируем repeatStudents как пустой массив, если он равен null или не определен
     const studentsToRepeat = Array.isArray(repeatStudents) ? repeatStudents : [];
     // 1. Обновляем статусы выпускников
-    const statusUpdateQuery = `
-      UPDATE students s
-      JOIN student_history sh ON s.student_id = sh.student_id
-      JOIN group_history gh ON sh.group_id = gh.group_id
-      JOIN courses c ON gh.course_id = c.course_id
-      SET s.status = CASE
-        WHEN ? IS NOT NULL AND s.student_id IN (?) THEN 'repeat_graduate'
-        ELSE 'graduated'
-      END
-      WHERE gh.year_id = ?
-      AND c.course_name IN ('Бакалавриат 4 курс', 'Магистратура 2 курс')
-    `;
     if (studentsToRepeat.length > 0) {
-      await connection.query(statusUpdateQuery, [1, studentsToRepeat, currentYearId]);
+      await connection.query(`
+        UPDATE students s
+        JOIN student_history sh ON s.student_id = sh.student_id
+        JOIN group_history gh ON sh.group_id = gh.group_id
+        JOIN courses c ON gh.course_id = c.course_id
+        SET s.status = 'repeat_graduate'
+        WHERE gh.year_id = ?
+        AND s.student_id IN (?)
+        AND c.course_name IN ('Бакалавриат 4 курс', 'Магистратура 2 курс')
+      `, [currentYearId, studentsToRepeat]);
     } else {
-      await connection.query(statusUpdateQuery, [null, [], currentYearId]);
+      await connection.query(`
+        UPDATE students s
+        JOIN student_history sh ON s.student_id = sh.student_id
+        JOIN group_history gh ON sh.group_id = gh.group_id
+        JOIN courses c ON gh.course_id = c.course_id
+        SET s.status = 'graduated'
+        WHERE gh.year_id = ?
+        AND c.course_name IN ('Бакалавриат 4 курс', 'Магистратура 2 курс')
+      `, [currentYearId]);
     }
 
     // 2. Архивируем записи выпускников
