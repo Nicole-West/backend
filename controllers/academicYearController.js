@@ -557,7 +557,7 @@ exports.studentProcessing = async (req, res) => {
         await connection.query(`
           INSERT INTO academic_leaves (student_id, start_history_id)
           VALUES (?, ?)
-        `, [transition.student_id, lastHistory.history_id]);
+        `, [transition.student_id, lastHistory]);
 
         await connection.query(`
           UPDATE students 
