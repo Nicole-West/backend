@@ -540,7 +540,7 @@ exports.studentProcessing = async (req, res) => {
 
       else if (transition.action === 'academic_leave') {
         // Найти активную запись student_history текущего года
-        const [[lastHistory]] = await connection.query(`
+        const [lastHistory] = await connection.query(`
           SELECT history_id
           FROM student_history
           WHERE student_id = ?
