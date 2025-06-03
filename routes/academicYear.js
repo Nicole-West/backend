@@ -19,6 +19,9 @@ router.get('/students/continuing/:yearId', checkAdmin, academicYearController.ge
 router.get('/groups/available/:yearId', checkAdmin, academicYearController.getAvailableGroups);
 router.post('/student-processing', checkAdmin, academicYearController.studentProcessing);
 
+router.post('/available-groups', checkAdmin, academicYearController.getAvailableGroups2);
+
+
 router.post('/process-academic-leaves', checkAdmin, academicYearController.processAcademicLeaves);
 router.post('/groups/manual', checkAdmin, upload.none(), academicYearController.addManualGroup);
 router.post('/groups/parse-excel', checkAdmin, upload.single('file'), academicYearController.parseExcelGroup);
