@@ -134,34 +134,35 @@ exports.addMonth = async (req, res) => {
 // Получение студентов в академотпуске
 exports.getAcademicLeaves = async (req, res) => {
   try {
-    // Студенты в академе
     const [students] = await db.query(`
       SELECT 
         s.student_id,
         s.full_name,
+        s.status,
         sg.group_number,
         c.course_name,
         c.course_id,
         sem.semester_number,
         ay.year AS academic_year,
-        ay.year_id,
-        sh.history_id,
-        gh.group_id
+        sh.history_id
       FROM students s
-      JOIN academic_leaves al ON s.student_id = al.student_id
-      JOIN student_history sh ON al.start_history_id = sh.history_id
-      JOIN group_history gh ON sh.group_id = gh.group_id 
+      LEFT JOIN academic_leaves al ON s.student_id = al.student_id
+      LEFT JOIN student_history sh ON al.start_history_id = sh.history_id
+      LEFT JOIN group_history gh ON sh.group_id = gh.group_id 
                           AND sh.year_id = gh.year_id 
                           AND sh.semester_id = gh.semester_id
-      JOIN student_groups sg ON sh.group_id = sg.group_id
-      JOIN courses c ON gh.course_id = c.course_id
-      JOIN semesters sem ON gh.semester_id = sem.semester_id
-      JOIN academic_years ay ON gh.year_id = ay.year_id
-      WHERE s.status = 'academic_leave'
-      ORDER BY sg.group_number, s.full_name
+      LEFT JOIN student_groups sg ON sh.group_id = sg.group_id
+      LEFT JOIN courses c ON gh.course_id = c.course_id
+      LEFT JOIN semesters sem ON gh.semester_id = sem.semester_id
+      LEFT JOIN academic_years ay ON gh.year_id = ay.year_id
+      WHERE s.status IN ('academic_leave', 'repeat_graduate')
+      ORDER BY 
+        CASE WHEN s.status = 'repeat_graduate' THEN 0 ELSE 1 END,
+        sg.group_number, 
+        s.full_name
     `);
 
-    // Доступные группы для перевода
+    // Получаем доступные группы (включая группы выпускников)
     const [groups] = await db.query(`
       SELECT DISTINCT
         sg.group_id,
@@ -210,40 +211,28 @@ exports.processAcademicLeaves = async (req, res) => {
 
     for (const decision of decisions) {
       if (decision.action === 'continue') {
-        // Получаем информацию о курсе и семестре, когда студент ушел в академ
-        const [academicInfo] = await connection.query(`
-          SELECT 
-            gh.course_id,
-            sh.semester_id,
-            sh.group_id
-          FROM academic_leaves al
-          JOIN student_history sh ON al.start_history_id = sh.history_id
-          JOIN group_history gh ON sh.group_id = gh.group_id
-          WHERE al.student_id = ?
-          LIMIT 1
-        `, [decision.student_id]);
-
-        if (academicInfo.length === 0) {
-          throw new Error(`Не найдена информация об академотпуске для студента ${decision.student_id}`);
+        // Для студентов на повторной защите (repeat_graduate)
+        if (decision.original_status === 'repeat_graduate') {
+          await connection.query(`
+            UPDATE students 
+            SET status = 'repeat_graduate' 
+            WHERE student_id = ?
+          `, [decision.student_id]);
+        } else {
+          await connection.query(`
+            UPDATE students 
+            SET status = 'studying' 
+            WHERE student_id = ?
+          `, [decision.student_id]);
         }
 
-        const { course_id, semester_id, group_id } = academicInfo[0];
-        const targetGroupId = decision.new_group_id || group_id;
-
-        // Обновляем статус студента
-        await connection.query(`
-          UPDATE students 
-          SET status = 'studying' 
-          WHERE student_id = ?
-        `, [decision.student_id]);
-
-        // Удаляем запись об академе
+        // Удаляем запись об академе (если есть)
         await connection.query(`
           DELETE FROM academic_leaves 
           WHERE student_id = ?
         `, [decision.student_id]);
 
-        // Архивируем старую запись истории студента
+        // Архивируем старую запись истории
         await connection.query(`
           UPDATE student_history
           SET status = 'archived'
@@ -251,15 +240,19 @@ exports.processAcademicLeaves = async (req, res) => {
           AND status = 'active'
         `, [decision.student_id]);
 
-        // Создаем новую запись в истории студента с теми же курсом и семестром
+        // Создаем новую запись в истории
         await connection.query(`
           INSERT INTO student_history 
           (student_id, group_id, year_id, semester_id, status)
           VALUES (?, ?, ?, ?, 'active')
-        `, [decision.student_id, targetGroupId, currentYearId, semester_id]);
+        `, [
+          decision.student_id,
+          decision.new_group_id || decision.original_group_id,
+          currentYearId,
+          decision.original_semester_id || 2 // По умолчанию 2 семестр
+        ]);
 
       } else if (decision.action === 'expel') {
-        // Отчисляем студента
         await connection.query(`
           UPDATE students 
           SET status = 'expelled' 

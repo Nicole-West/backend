@@ -2,48 +2,48 @@ const { response } = require('express');
 const db = require('../db');
 
 exports.getCurrentYearInfo = async (req, res) => {
-    try {
-        // Получаем текущий учебный год
-        const [currentYear] = await db.query(
-            'SELECT year_id, year FROM academic_years WHERE is_current = TRUE LIMIT 1'
-        );
+  try {
+    // Получаем текущий учебный год
+    const [currentYear] = await db.query(
+      'SELECT year_id, year FROM academic_years WHERE is_current = TRUE LIMIT 1'
+    );
 
-        if (currentYear.length === 0) {
-            return res.status(404).json({
-                success: false,
-                message: 'Текущий учебный год не найден в системе'
-            });
-        }
-
-        // Генерируем следующий год (2023-2024 -> 2024-2025)
-        const current = currentYear[0].year;
-        const [start, end] = current.split('-').map(Number);
-        const nextYear = `${start + 1}-${end + 1}`;
-
-        res.json({
-            success: true,
-            data: {
-                currentYear: current,
-                currentYearId: currentYear[0].year_id,
-                nextYear
-            }
-        });
-    } catch (err) {
-        console.error('Ошибка при получении учебного года:', err);
-        res.status(500).json({
-            success: false,
-            message: 'Внутренняя ошибка сервера при получении данных'
-        });
+    if (currentYear.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Текущий учебный год не найден в системе'
+      });
     }
+
+    // Генерируем следующий год (2023-2024 -> 2024-2025)
+    const current = currentYear[0].year;
+    const [start, end] = current.split('-').map(Number);
+    const nextYear = `${start + 1}-${end + 1}`;
+
+    res.json({
+      success: true,
+      data: {
+        currentYear: current,
+        currentYearId: currentYear[0].year_id,
+        nextYear
+      }
+    });
+  } catch (err) {
+    console.error('Ошибка при получении учебного года:', err);
+    res.status(500).json({
+      success: false,
+      message: 'Внутренняя ошибка сервера при получении данных'
+    });
+  }
 };
 
 // Получение выпускников
 exports.getGraduatingStudents = async (req, res) => {
-    try {
-        const { yearId } = req.params;
+  try {
+    const { yearId } = req.params;
 
-        // Получаем группы выпускников (4 курс бакалавриата и 2 курс магистратуры)
-        const [groups] = await db.query(`
+    // Получаем группы выпускников (4 курс бакалавриата и 2 курс магистратуры)
+    const [groups] = await db.query(`
             SELECT 
                 sg.group_id,
                 sg.group_number,
@@ -56,9 +56,9 @@ exports.getGraduatingStudents = async (req, res) => {
             AND sg.status = 'active'
         `, [yearId]);
 
-        // Для каждой группы получаем студентов
-        const result = await Promise.all(groups.map(async group => {
-            const [students] = await db.query(`
+    // Для каждой группы получаем студентов
+    const result = await Promise.all(groups.map(async group => {
+      const [students] = await db.query(`
                 SELECT 
                     s.student_id,
                     s.full_name
@@ -70,105 +70,145 @@ exports.getGraduatingStudents = async (req, res) => {
                 AND s.status = 'studying'
             `, [group.group_id, yearId]);
 
-            return {
-                ...group,
-                students
-            };
-        }));
+      return {
+        ...group,
+        students
+      };
+    }));
 
-        res.json({
-            success: true,
-            data: result
-        });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({
-            success: false,
-            message: 'Ошибка при получении выпускников'
-        });
-    }
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: 'Ошибка при получении выпускников'
+    });
+  }
 };
 
 // Обработка перехода
 exports.processTransition = async (req, res) => {
-    console.log('Here');
-    try {
-        const { currentYearId, nextYear, repeatStudents = null } = req.body;
+  console.log('Here');
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
 
-        // 1. Обновляем статусы выпускников
-        await db.query(`
-            UPDATE students s
-            JOIN student_history sh ON s.student_id = sh.student_id
-            JOIN group_history gh ON sh.group_id = gh.group_id
-            JOIN courses c ON gh.course_id = c.course_id
-            SET s.status = CASE
-                WHEN ? IS NOT NULL AND s.student_id IN (?) THEN 'repeat_graduate'
-                ELSE 'graduated'
-            END
-            WHERE gh.year_id = ?
-            AND c.course_name IN ('Бакалавриат 4 курс', 'Магистратура 2 курс')
-        `, [repeatStudents, repeatStudents, currentYearId]);
-        console.log('done 1');
+    const { currentYearId, nextYear, repeatStudents = [] } = req.body;
 
-        // 2. Архивируем записи выпускников
-        await db.query(`
-            UPDATE student_history sh
-            JOIN group_history gh ON sh.group_id = gh.group_id
-            JOIN courses c ON gh.course_id = c.course_id
-            SET sh.status = 'archived'
-            WHERE gh.year_id = ?
-            AND c.course_name IN ('Бакалавриат 4 курс', 'Магистратура 2 курс')
-        `, [currentYearId]);
-        console.log('done 2');
+    // 1. Обновляем статусы выпускников
+    await connection.query(`
+      UPDATE students s
+      JOIN student_history sh ON s.student_id = sh.student_id
+      JOIN group_history gh ON sh.group_id = gh.group_id
+      JOIN courses c ON gh.course_id = c.course_id
+      SET s.status = CASE
+        WHEN ? IS NOT NULL AND s.student_id IN (?) THEN 'repeat_graduate'
+        ELSE 'graduated'
+      END
+      WHERE gh.year_id = ?
+      AND c.course_name IN ('Бакалавриат 4 курс', 'Магистратура 2 курс')
+    `, [repeatStudents.length > 0 ? 1 : 0, repeatStudents, currentYearId]);
 
-        // 3. Архивируем группы выпускников
-        await db.query(`
-            UPDATE student_groups sg
-            JOIN group_history gh ON sg.group_id = gh.group_id
-            JOIN courses c ON gh.course_id = c.course_id
-            SET sg.status = 'archived'
-            WHERE gh.year_id = ?
-            AND c.course_name IN ('Бакалавриат 4 курс', 'Магистратура 2 курс')
-        `, [currentYearId]);
-        console.log('done 3');
+    // 2. Архивируем записи выпускников
+    await connection.query(`
+      UPDATE student_history sh
+      JOIN group_history gh ON sh.group_id = gh.group_id
+      JOIN courses c ON gh.course_id = c.course_id
+      SET sh.status = 'archived'
+      WHERE gh.year_id = ?
+      AND c.course_name IN ('Бакалавриат 4 курс', 'Магистратура 2 курс')
+    `, [currentYearId]);
 
-        // 4. Создаем новый учебный год
-        // const [newYear] = await db.query(`
-        //     INSERT INTO academic_years (year, is_current)
-        //     VALUES (?, TRUE)
-        // `, [nextYear]);
-        // console.log('done 4');
+    // 3. Архивируем группы выпускников
+    await connection.query(`
+      UPDATE student_groups sg
+      JOIN group_history gh ON sg.group_id = gh.group_id
+      JOIN courses c ON gh.course_id = c.course_id
+      SET sg.status = 'archived'
+      WHERE gh.year_id = ?
+      AND c.course_name IN ('Бакалавриат 4 курс', 'Магистратура 2 курс')
+    `, [currentYearId]);
 
-        // 5. Деактивируем старый год
-        // await db.query(`
-        //     UPDATE academic_years 
-        //     SET is_current = FALSE 
-        //     WHERE year_id = ?
-        // `, [currentYearId]);
-        // console.log('done 5');
+    // 4. Для студентов на повторную защиту создаем академотпуск
+    if (repeatStudents.length > 0) {
+      // Получаем ID следующего семестра (2 семестр)
+      const [[secondSemester]] = await connection.query(`
+        SELECT semester_id FROM semesters WHERE semester_number = '2'
+      `);
 
+      // Создаем новую запись в student_history для повторников
+      for (const studentId of repeatStudents) {
+        // Получаем информацию о группе студента
+        const [[studentInfo]] = await connection.query(`
+          SELECT 
+            sh.group_id,
+            gh.course_id
+          FROM student_history sh
+          JOIN group_history gh ON sh.group_id = gh.group_id
+          WHERE sh.student_id = ?
+          AND sh.year_id = ?
+          LIMIT 1
+        `, [studentId, currentYearId]);
 
-        res.json({
-            success: true,
-            message: 'Обработка успешно завершена'
-        });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({
-            success: false,
-            message: 'Ошибка при обработке'
-        });
+        if (studentInfo) {
+          // Создаем новую запись в истории студента для 2 семестра
+          const [newHistory] = await connection.query(`
+            INSERT INTO student_history 
+            (student_id, group_id, year_id, semester_id, status)
+            VALUES (?, ?, ?, ?, 'active')
+          `, [studentId, studentInfo.group_id, currentYearId, secondSemester.semester_id]);
+
+          // Добавляем запись об академотпуске
+          await connection.query(`
+            INSERT INTO academic_leaves (student_id, start_history_id)
+            VALUES (?, ?)
+          `, [studentId, newHistory.insertId]);
+        }
+      }
     }
+
+    // 5. Создаем новый учебный год (если нужно)
+    // const [newYear] = await connection.query(`
+    //   INSERT INTO academic_years (year, is_current)
+    //   VALUES (?, TRUE)
+    // `, [nextYear]);
+
+    // 6. Деактивируем старый год (если нужно)
+    // await connection.query(`
+    //   UPDATE academic_years 
+    //   SET is_current = FALSE 
+    //   WHERE year_id = ?
+    // `, [currentYearId]);
+
+    await connection.commit();
+    connection.release();
+
+    res.json({
+      success: true,
+      message: 'Обработка успешно завершена'
+    });
+  } catch (err) {
+    await connection.rollback();
+    connection.release();
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: 'Ошибка при обработке перехода'
+    });
+  }
 };
 
 // Получение студентов в академотпуске
 exports.getAcademicLeaveStudents = async (req, res) => {
-    console.log('Получение студентов в академ-отпуске');
+  console.log('Получение студентов в академ-отпуске');
 
-    try {
-        const { yearId } = req.params;
+  try {
+    const { yearId } = req.params;
 
-        const [students] = await db.query(`
+    const [students] = await db.query(`
             SELECT 
                 s.student_id,
                 s.full_name,
@@ -189,32 +229,32 @@ exports.getAcademicLeaveStudents = async (req, res) => {
             AND gh.year_id = ?
         `, [yearId]);
 
-        res.json({
-            success: true,
-            data: students
-        });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({
-            success: false,
-            message: 'Ошибка при получении студентов в академотпуске'
-        });
-    }
+    res.json({
+      success: true,
+      data: students
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: 'Ошибка при получении студентов в академотпуске'
+    });
+  }
 };
 
 // Обработка решений по академотпускам
 exports.processAcademicLeaves = async (req, res) => {
-    let connection;
-    try {
-        connection = await db.getConnection();
-        await connection.beginTransaction();
+  let connection;
+  try {
+    connection = await db.getConnection();
+    await connection.beginTransaction();
 
-        const { yearId, decisions = [] } = req.body;
+    const { yearId, decisions = [] } = req.body;
 
-        for (const decision of decisions) {
-            if (decision.action === 'continue') {
-                // Получаем информацию о курсе и семестре, когда студент ушел в академ
-                const [academicInfo] = await connection.query(`
+    for (const decision of decisions) {
+      if (decision.action === 'continue') {
+        // Получаем информацию о курсе и семестре, когда студент ушел в академ
+        const [academicInfo] = await connection.query(`
                     SELECT 
                         gh.course_id,
                         sh.semester_id,
@@ -226,76 +266,76 @@ exports.processAcademicLeaves = async (req, res) => {
                     LIMIT 1
                 `, [decision.student_id]);
 
-                if (academicInfo.length === 0) {
-                    throw new Error(`Не найдена информация об академотпуске для студента ${decision.student_id}`);
-                }
+        if (academicInfo.length === 0) {
+          throw new Error(`Не найдена информация об академотпуске для студента ${decision.student_id}`);
+        }
 
-                const { course_id, semester_id, group_id } = academicInfo[0];
+        const { course_id, semester_id, group_id } = academicInfo[0];
 
-                // Обновляем статус студента
-                await connection.query(`
+        // Обновляем статус студента
+        await connection.query(`
                     UPDATE students 
                     SET status = 'studying' 
                     WHERE student_id = ?
                 `, [decision.student_id]);
 
-                // Удаляем запись об академотпуске
-                await connection.query(`
+        // Удаляем запись об академотпуске
+        await connection.query(`
                     DELETE FROM academic_leaves 
                     WHERE student_id = ?
                 `, [decision.student_id]);
 
-                // Архивируем старую запись истории студента
-                await connection.query(`
+        // Архивируем старую запись истории студента
+        await connection.query(`
                     UPDATE student_history
                     SET status = 'archived'
                     WHERE student_id = ?
                     AND status = 'active'
                 `, [decision.student_id]);
 
-                // Создаем новую запись в истории студента с теми же курсом и семестром
-                await connection.query(`
+        // Создаем новую запись в истории студента с теми же курсом и семестром
+        await connection.query(`
                     INSERT INTO student_history 
                     (student_id, group_id, year_id, semester_id, status)
                     VALUES (?, ?, ?, ?, 'active')
                 `, [decision.student_id, group_id, yearId, semester_id]);
 
-            } else if (decision.action === 'expel') {
-                await connection.query(`
+      } else if (decision.action === 'expel') {
+        await connection.query(`
                     UPDATE students 
                     SET status = 'expelled' 
                     WHERE student_id = ?
                 `, [decision.student_id]);
-            }
-        }
-
-        await connection.commit();
-        res.json({
-            success: true,
-            message: 'Решения по академотпускам применены'
-        });
-
-    } catch (err) {
-        if (connection) await connection.rollback();
-        console.error(err);
-        res.status(500).json({
-            success: false,
-            message: 'Ошибка при обработке решений'
-        });
-    } finally {
-        if (connection) connection.release();
+      }
     }
+
+    await connection.commit();
+    res.json({
+      success: true,
+      message: 'Решения по академотпускам применены'
+    });
+
+  } catch (err) {
+    if (connection) await connection.rollback();
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: 'Ошибка при обработке решений'
+    });
+  } finally {
+    if (connection) connection.release();
+  }
 };
 
 
 // Получение студентов для перевода
 exports.getContinuingStudents = async (req, res) => {
-    console.log('Получение студентов для перевода');
-    try {
-        const { yearId } = req.params;
+  console.log('Получение студентов для перевода');
+  try {
+    const { yearId } = req.params;
 
-        // Получаем группы, которые продолжают обучение
-        const [groups] = await db.query(`
+    // Получаем группы, которые продолжают обучение
+    const [groups] = await db.query(`
             SELECT 
                 gh.group_id,
                 sg.group_number,
@@ -314,9 +354,9 @@ exports.getContinuingStudents = async (req, res) => {
             AND sg.status = 'active'
         `, [yearId]);
 
-        // Для каждой группы получаем студентов
-        const result = await Promise.all(groups.map(async group => {
-            const [students] = await db.query(`
+    // Для каждой группы получаем студентов
+    const result = await Promise.all(groups.map(async group => {
+      const [students] = await db.query(`
                 SELECT 
                     s.student_id,
                     s.full_name,
@@ -329,36 +369,36 @@ exports.getContinuingStudents = async (req, res) => {
                 AND s.status = 'studying'
             `, [group.group_id, yearId]);
 
-            return {
-                ...group,
-                students: students.map(s => ({
-                    ...s,
-                    action: 'continue', // По умолчанию - перевести
-                    new_group_id: null // Для варианта перевода в другую группу
-                }))
-            };
-        }));
+      return {
+        ...group,
+        students: students.map(s => ({
+          ...s,
+          action: 'continue', // По умолчанию - перевести
+          new_group_id: null // Для варианта перевода в другую группу
+        }))
+      };
+    }));
 
-        res.json({
-            success: true,
-            data: result
-        });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({
-            success: false,
-            message: 'Ошибка при получении студентов для перевода'
-        });
-    }
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: 'Ошибка при получении студентов для перевода'
+    });
+  }
 };
 
 // Получение доступных групп для перевода студентов
 exports.getAvailableGroups = async (req, res) => {
-    try {
-        const { yearId } = req.params;
+  try {
+    const { yearId } = req.params;
 
-        // Получаем группы, которые будут в новом учебном году
-        const [groups] = await db.query(`
+    // Получаем группы, которые будут в новом учебном году
+    const [groups] = await db.query(`
             SELECT 
                 sg.group_id,
                 sg.group_number,
@@ -372,22 +412,22 @@ exports.getAvailableGroups = async (req, res) => {
             AND c.course_name NOT IN ('Бакалавриат 4 курс', 'Магистратура 2 курс')
         `, [yearId]);
 
-        res.json({
-            success: true,
-            data: groups.map(group => ({
-                ...group,
-                // Добавляем следующий курс для отображения
-                next_course: group.course_name.replace(/(\d+)/,
-                    match => parseInt(match) + 1)
-            }))
-        });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({
-            success: false,
-            message: 'Ошибка при получении списка групп'
-        });
-    }
+    res.json({
+      success: true,
+      data: groups.map(group => ({
+        ...group,
+        // Добавляем следующий курс для отображения
+        next_course: group.course_name.replace(/(\d+)/,
+          match => parseInt(match) + 1)
+      }))
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: 'Ошибка при получении списка групп'
+    });
+  }
 };
 
 // новый год + обработка студентов
@@ -500,7 +540,7 @@ const XLSX = require('xlsx');
 
 // Валидация названия группы
 const validateGroupName = (name) => {
-    return /^\d{7}\/\d{5}$/.test(name);
+  return /^\d{7}\/\d{5}$/.test(name);
 };
 
 // Добавление группы вручную
@@ -574,51 +614,51 @@ exports.addManualGroup = async (req, res) => {
 
 // Парсинг Excel файла
 exports.parseExcelGroup = async (req, res) => {
-    try {
-        if (!req.file) {
-            throw new Error('Файл не загружен');
-        }
-
-        const workbook = XLSX.read(req.file.buffer);
-        const result = [];
-
-        for (const sheetName of workbook.SheetNames) {
-            const worksheet = workbook.Sheets[sheetName];
-            const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
-
-            // Фильтруем и валидируем данные
-            const students = data
-                .filter(row => row[1] && typeof row[1] === 'string') // Проверяем наличие ФИО
-                .map((row, index) => ({
-                    number: index + 1, // Автонумерация
-                    full_name: row[1].trim() // Берем ФИО из второй колонки
-                }));
-
-            if (students.length > 0) {
-                result.push({
-                    sheetName,
-                    proposedGroupName: sheetName,
-                    students
-                });
-            }
-        }
-
-
-        if (result.length === 0) {
-            throw new Error('Не найдено ни одной группы с данными студентов');
-        }
-
-        res.json({
-            success: true,
-            data: result
-        });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({
-            success: false,
-            message: err.message || 'Ошибка при обработке файла'
-        });
+  try {
+    if (!req.file) {
+      throw new Error('Файл не загружен');
     }
+
+    const workbook = XLSX.read(req.file.buffer);
+    const result = [];
+
+    for (const sheetName of workbook.SheetNames) {
+      const worksheet = workbook.Sheets[sheetName];
+      const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+      // Фильтруем и валидируем данные
+      const students = data
+        .filter(row => row[1] && typeof row[1] === 'string') // Проверяем наличие ФИО
+        .map((row, index) => ({
+          number: index + 1, // Автонумерация
+          full_name: row[1].trim() // Берем ФИО из второй колонки
+        }));
+
+      if (students.length > 0) {
+        result.push({
+          sheetName,
+          proposedGroupName: sheetName,
+          students
+        });
+      }
+    }
+
+
+    if (result.length === 0) {
+      throw new Error('Не найдено ни одной группы с данными студентов');
+    }
+
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      message: err.message || 'Ошибка при обработке файла'
+    });
+  }
 };
 
 
@@ -804,8 +844,8 @@ exports.assignTeachers = async (req, res) => {
 };
 
 exports.getActiveGroupSubjects = async (req, res) => {
-    try {
-        const [groupSubjects] = await db.query(`
+  try {
+    const [groupSubjects] = await db.query(`
             SELECT 
             gs.group_subject_id, 
             gs.group_id, 
@@ -819,11 +859,11 @@ exports.getActiveGroupSubjects = async (req, res) => {
             WHERE gs.status = 'active'
         `);
 
-        res.json({ success: true, data: groupSubjects });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ success: false });
-    }
+    res.json({ success: true, data: groupSubjects });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false });
+  }
 };
 
 exports.initializeGrades = async (req, res) => {
