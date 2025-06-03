@@ -11,6 +11,13 @@ exports.init = async (req, res) => {
       LIMIT 1
     `);
 
+    if (!currentMonth.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'Текущий активный месяц не найден'
+      });
+    }
+
     const currentMonthValue = currentMonth[0].month;
 
     // Определяем текущий и следующий семестр по месяцу
@@ -134,9 +141,12 @@ exports.getAcademicLeaves = async (req, res) => {
         s.full_name,
         sg.group_number,
         c.course_name,
+        c.course_id,
         sem.semester_number,
         ay.year AS academic_year,
-        sh.history_id
+        ay.year_id,
+        sh.history_id,
+        gh.group_id
       FROM students s
       JOIN academic_leaves al ON s.student_id = al.student_id
       JOIN student_history sh ON al.start_history_id = sh.history_id
@@ -148,6 +158,7 @@ exports.getAcademicLeaves = async (req, res) => {
       JOIN semesters sem ON gh.semester_id = sem.semester_id
       JOIN academic_years ay ON gh.year_id = ay.year_id
       WHERE s.status = 'academic_leave'
+      ORDER BY sg.group_number, s.full_name
     `);
 
     // Доступные группы для перевода
@@ -195,12 +206,31 @@ exports.processAcademicLeaves = async (req, res) => {
       WHERE is_current = TRUE
       LIMIT 1
     `);
-    currentYearId = year[0].year_id;
-
+    const currentYearId = year[0].year_id;
 
     for (const decision of decisions) {
       if (decision.action === 'continue') {
-        // Возвращаем студента к обучению
+        // Получаем информацию о курсе и семестре, когда студент ушел в академ
+        const [academicInfo] = await connection.query(`
+          SELECT 
+            gh.course_id,
+            sh.semester_id,
+            sh.group_id
+          FROM academic_leaves al
+          JOIN student_history sh ON al.start_history_id = sh.history_id
+          JOIN group_history gh ON sh.group_id = gh.group_id
+          WHERE al.student_id = ?
+          LIMIT 1
+        `, [decision.student_id]);
+
+        if (academicInfo.length === 0) {
+          throw new Error(`Не найдена информация об академотпуске для студента ${decision.student_id}`);
+        }
+
+        const { course_id, semester_id, group_id } = academicInfo[0];
+        const targetGroupId = decision.new_group_id || group_id;
+
+        // Обновляем статус студента
         await connection.query(`
           UPDATE students 
           SET status = 'studying' 
@@ -213,32 +243,22 @@ exports.processAcademicLeaves = async (req, res) => {
           WHERE student_id = ?
         `, [decision.student_id]);
 
-        // Добавляем студента в новую группу
-        if (decision.new_group_id) {
-          // Получаем курс новой группы
-          const [groupCourse] = await connection.query(`
-            SELECT course_id FROM group_history
-            WHERE group_id = ?
-            AND year_id = ?
-            LIMIT 1
-          `, [decision.new_group_id, currentYearId]);
+        // Архивируем старую запись истории студента
+        await connection.query(`
+          UPDATE student_history
+          SET status = 'archived'
+          WHERE student_id = ?
+          AND status = 'active'
+        `, [decision.student_id]);
 
-          if (groupCourse.length > 0) {
-            await connection.query(`
-              INSERT INTO student_history 
-              (student_id, group_id, year_id, semester_id, status)
-              VALUES (?, ?, ?, 
-                (SELECT semester_id FROM semesters WHERE semester_number = '2'),
-                'active')
-            `, [
-              decision.student_id,
-              decision.new_group_id,
-              currentYearId
-            ]);
-          }
-        }
-      }
-      else if (decision.action === 'expel') {
+        // Создаем новую запись в истории студента с теми же курсом и семестром
+        await connection.query(`
+          INSERT INTO student_history 
+          (student_id, group_id, year_id, semester_id, status)
+          VALUES (?, ?, ?, ?, 'active')
+        `, [decision.student_id, targetGroupId, currentYearId, semester_id]);
+
+      } else if (decision.action === 'expel') {
         // Отчисляем студента
         await connection.query(`
           UPDATE students 
@@ -246,7 +266,6 @@ exports.processAcademicLeaves = async (req, res) => {
           WHERE student_id = ?
         `, [decision.student_id]);
       }
-      // Для продления академа ничего не делаем
     }
 
     await connection.commit();
@@ -376,18 +395,28 @@ exports.updateStudentStatuses = async (req, res) => {
 
       // 3. Если студент продолжает обучение или уходит в академ
       if (new_status === 'studying' || new_status === 'academic_leave') {
-        // Получаем group_id
         let groupId = new_group_id;
         if (!groupId) {
           const [[groupRow]] = await connection.query(`
-            SELECT group_id FROM student_history 
-            WHERE history_id = ?
-          `, [history_id]);
+      SELECT group_id FROM student_history 
+      WHERE history_id = ?
+    `, [history_id]);
           groupId = groupRow?.group_id;
         }
 
         if (!groupId) {
           throw new Error(`Не удалось определить группу для студента ${student_id}`);
+        }
+
+        // Проверяем существование группы в следующем семестре
+        const [groupExists] = await connection.query(`
+          SELECT 1 FROM group_history
+          WHERE group_id = ? AND year_id = ? AND semester_id = ?
+          LIMIT 1
+        `, [groupId, currentYearID, nextSemesterId]);
+
+        if (!groupExists.length) {
+          throw new Error(`Группа ${groupId} не найдена в следующем семестре для студента ${student_id}`);
         }
 
         // // Получаем курс группы в следующем семестре
