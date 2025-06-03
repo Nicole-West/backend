@@ -7,7 +7,7 @@ exports.getStudentsByGroupId = async (req, res) => {
 
   try {
     const [rows] = await db.query('CALL GetCurrentGroupStudents(?)', [groupId]);
-    const students = rows;
+    const students = rows[0]; // Изменение здесь, так как хранимые процедуры возвращают результат в первом элементе массива
     res.json({ students });
   } catch (err) {
     console.error('Ошибка при получении студентов:', err);
@@ -80,7 +80,7 @@ exports.getGradesByGroupIdAndSubjectId = async (req, res) => {
   const groupId = req.params.groupId;
   const subjectId = req.params.subjectId;
 
-  console.log(`[GET] /api/group/\${groupId}/subjects/\${subjectId}/grades — Получение оценок`);
+  console.log(`[GET] /api/group/${groupId}/subjects/${subjectId}/grades — Получение оценок`);
 
   try {
     const [yearRow] = await db.query(`SELECT year_id FROM academic_years WHERE is_current = TRUE LIMIT 1`);
@@ -114,7 +114,10 @@ exports.getGradesByGroupIdAndSubjectId = async (req, res) => {
         JOIN student_history sh ON s.student_id = sh.student_id
         LEFT JOIN grades g ON sh.history_id = g.student_history_id 
                             AND g.group_subject_id = ? AND g.month_id = ?
-        WHERE sh.group_id = ? AND sh.year_id = ? AND sh.status = 'active'
+        WHERE sh.group_id = ? 
+          AND sh.year_id = ? 
+          AND sh.status = 'active'
+          AND s.status = 'studying' -- Только учащиеся студенты
         ORDER BY s.full_name
       `, [groupSubjectId, monthId, groupId, yearId]);
 
