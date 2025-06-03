@@ -540,7 +540,7 @@ exports.studentProcessing = async (req, res) => {
 
       else if (transition.action === 'academic_leave') {
         // Найти активную запись student_history текущего года
-        const [[lastHistory]] = await connection.query(`
+        const [rows] = await connection.query(`
           SELECT history_id
           FROM student_history
           WHERE student_id = ?
@@ -549,8 +549,10 @@ exports.studentProcessing = async (req, res) => {
           LIMIT 1
         `, [transition.student_id, currentYearId]);
 
-        console.log('transition.student_id', transition.student_id)
-        console.log('lastHistory.history_id', lastHistory.history_id)
+        const lastHistory = rows[0];
+
+        console.log('transition.student_id', transition.student_id);
+        console.log('lastHistory.history_id', lastHistory?.history_id);
 
         if (!lastHistory) {
           throw new Error(`Активная запись в student_history не найдена для студента ID ${transition.student_id}`);
