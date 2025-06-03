@@ -27,6 +27,14 @@ exports.approveUser = async (req, res) => {
             WHERE user_id = ?
         `, [first_name, last_name, middle_name, email, role, userId]);
 
+        // Добавляем пользователя в таблицу teachers, если его роль - 'teacher' или 'senior_teacher'
+        if (role === 'teacher' || role === 'senior_teacher') {
+            await db.query(`
+                INSERT INTO teachers (user_id)
+                VALUES (?)
+            `, [userId]);
+        }
+
         res.json({ success: true });
     } catch (err) {
         console.error('Ошибка подтверждения пользователя:', err);
