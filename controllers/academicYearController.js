@@ -548,7 +548,7 @@ exports.studentProcessing = async (req, res) => {
             AND status = 'active'
           LIMIT 1;`, [transition.student_id, currentYearId]);
 
-        const lastHistory = rows[0];
+        // const lastHistory = rows[0];
         
         console.log('rows', rows)
         console.log('rows[0]', rows[0])
