@@ -210,24 +210,35 @@ exports.getAcademicLeaveStudents = async (req, res) => {
 
     const [students] = await db.query(`
             SELECT DISTINCT
-                s.student_id,
-                s.full_name,
-                sg.group_number,
-                c.course_name,
-                c.course_id,
-                sm.semester_number,
-                sh.history_id,
-                gh.year_id
-            FROM students s
-            JOIN academic_leaves al ON s.student_id = al.student_id
-            JOIN student_history sh ON al.start_history_id = sh.history_id
-            JOIN group_history gh ON sh.group_id = gh.group_id
-            JOIN student_groups sg ON sh.group_id = sg.group_id
-            JOIN courses c ON gh.course_id = c.course_id
-            JOIN semesters sm ON sh.semester_id = sm.semester_id
-            WHERE s.status = 'academic_leave'
-            AND sm.semester_id = 1
-        `, [yearId]);
+    s.student_id,
+    s.full_name,
+    sg.group_number,
+    c.course_name,
+    c.course_id,
+    sm.semester_number,
+    sh.history_id,
+    gh.year_id
+FROM
+    students s
+JOIN
+    academic_leaves al ON s.student_id = al.student_id
+JOIN
+    student_history sh ON al.start_history_id = sh.history_id
+JOIN
+    student_groups sg ON sh.group_id = sg.group_id
+JOIN
+    group_history gh ON sh.group_id = gh.group_id AND sh.year_id = gh.year_id AND sh.semester_id = gh.semester_id
+JOIN
+    course_subjects cs ON gh.course_id = cs.course_id
+JOIN
+    courses c ON cs.course_id = c.course_id
+JOIN
+    semesters sm ON cs.semester_id = sm.semester_id
+WHERE
+    sg.status = 'active'
+    AND s.status = 'academic_leave'
+    AND sm.semester_id = 1;
+        `);
 
     res.json({
       success: true,
@@ -248,17 +259,18 @@ exports.getAvailableGroups2 = async (req, res) => {
     const { yearId } = req.params;
 
     const [groups] = await db.query(
-      `SELECT 
-                sg.group_id,
-                sg.group_number,
-                c.course_name,
-                c.course_id
-            FROM group_history gh
-            JOIN student_groups sg ON gh.group_id = sg.group_id
-            JOIN courses c ON gh.course_id = c.course_id
-            WHERE gh.year_id = ?
-            AND sg.status = 'active'
-            AND c.course_name NOT IN ('Бакалавриат 4 курс', 'Магистратура 2 курс')
+      `SELECT DISTINCT
+        sg.group_id,
+        sg.group_number,
+        c.course_name,
+        c.course_id
+      FROM student_groups sg
+      JOIN group_history gh ON sg.group_id = gh.group_id
+      JOIN courses c ON gh.course_id = c.course_id
+      JOIN academic_years ay ON gh.year_id = ay.year_id
+      WHERE sg.status = 'active'
+      AND ay.is_current = TRUE
+      ORDER BY sg.group_number
       `,
       [yearId]
     );
