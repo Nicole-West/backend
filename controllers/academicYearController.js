@@ -475,7 +475,13 @@ exports.studentProcessing = async (req, res) => {
 
     const { newYearIdreq, nextYear, transitions = [] } = req.body;
 
-    const currentYearId = newYearIdreq - 1;
+    // const currentYearId = newYearIdreq - 1;
+    const [currentYear] = await db.query(
+      'SELECT year_id, year FROM academic_years WHERE is_current = TRUE LIMIT 1'
+    );
+
+    const currentYearId = currentYear[0].year_id;
+
 
     // 1. Создаем новый учебный год
     const [newYear] = await connection.query(`
