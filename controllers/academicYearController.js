@@ -59,7 +59,7 @@ exports.getGraduatingStudents = async (req, res) => {
     // Для каждой группы получаем студентов
     const result = await Promise.all(groups.map(async group => {
       const [students] = await db.query(`
-                SELECT 
+                SELECT DISTINCT 
                     s.student_id,
                     s.full_name
                 FROM student_history sh
@@ -144,12 +144,12 @@ exports.processTransition = async (req, res) => {
         // Получаем информацию о группе студента
         const [[studentInfo]] = await connection.query(`
           SELECT 
-            sh.group_id,
-            gh.course_id
+            sh.group_id
           FROM student_history sh
           JOIN group_history gh ON sh.group_id = gh.group_id
           WHERE sh.student_id = ?
           AND sh.year_id = ?
+          AND sh.status = 'active'
           LIMIT 1
         `, [studentId, currentYearId]);
 
