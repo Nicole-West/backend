@@ -402,16 +402,16 @@ exports.updateStudentStatuses = async (req, res) => {
           throw new Error(`Не удалось определить группу для студента ${student_id}`);
         }
 
-        // Проверяем существование группы в следующем семестре
-        const [groupExists] = await connection.query(`
-          SELECT 1 FROM group_history
-          WHERE group_id = ? AND year_id = ? AND semester_id = ?
-          LIMIT 1
-        `, [groupId, currentYearID, nextSemesterId]);
+        // // Проверяем существование группы в следующем семестре
+        // const [groupExists] = await connection.query(`
+        //   SELECT 1 FROM group_history
+        //   WHERE group_id = ? AND year_id = ? AND semester_id = ?
+        //   LIMIT 1
+        // `, [groupId, currentYearID, nextSemesterId]);
 
-        if (!groupExists.length) {
-          throw new Error(`Группа ${groupId} не найдена в следующем семестре для студента ${student_id}`);
-        }
+        // if (!groupExists.length) {
+        //   throw new Error(`Группа ${groupId} не найдена в следующем семестре для студента ${student_id}`);
+        // }
 
         // // Получаем курс группы в следующем семестре
         // const [groupCourse] = await connection.query(`

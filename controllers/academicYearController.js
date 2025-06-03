@@ -226,7 +226,7 @@ exports.getAcademicLeaveStudents = async (req, res) => {
             JOIN courses c ON gh.course_id = c.course_id
             JOIN semesters sm ON sh.semester_id = sm.semester_id
             WHERE s.status = 'academic_leave'
-            AND sm.semester_id = 2
+            AND sm.semester_id = 1
             AND gh.year_id = ?
         `, [yearId]);
 
