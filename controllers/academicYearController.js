@@ -550,12 +550,8 @@ exports.studentProcessing = async (req, res) => {
 
         const lastHistory = rows[0];
         
-        console.log('rows', rows)
-        console.log('currentYearId', currentYearId)
-        console.log('lastHistory[0]', lastHistory[0])
-        console.log('lastHistory[0].history_id', lastHistory[0].history_id)
-        console.log('transition.student_id', transition.student_id);
-        console.log('lastHistory.history_id', lastHistory?.history_id);
+        console.log('rows[0]', rows[0])
+        console.log('rows[0].history_id', rows[0].history_id)
 
         if (!lastHistory) {
           throw new Error(`Активная запись в student_history не найдена для студента ID ${transition.student_id}`);
