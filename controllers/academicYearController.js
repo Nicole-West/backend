@@ -174,7 +174,10 @@ exports.getAcademicLeaveStudents = async (req, res) => {
                 s.full_name,
                 sg.group_number,
                 c.course_name,
-                sh.history_id
+                c.course_id,
+                sm.semester_number,
+                sh.history_id,
+                gh.year_id
             FROM students s
             JOIN academic_leaves al ON s.student_id = al.student_id
             JOIN student_history sh ON al.start_history_id = sh.history_id
@@ -184,7 +187,6 @@ exports.getAcademicLeaveStudents = async (req, res) => {
             JOIN semesters sm ON sh.semester_id = sm.semester_id
             WHERE s.status = 'academic_leave'
             AND gh.year_id = ?
-            AND sm.semester_number = '1'  -- Добавляем условие для первого семестра
         `, [yearId]);
 
         res.json({
@@ -202,54 +204,87 @@ exports.getAcademicLeaveStudents = async (req, res) => {
 
 // Обработка решений по академотпускам
 exports.processAcademicLeaves = async (req, res) => {
-  let connection;
-  try {
-    connection = await db.getConnection(); // Получаем соединение для транзакции
-    await connection.beginTransaction();
+    let connection;
+    try {
+        connection = await db.getConnection();
+        await connection.beginTransaction();
 
-    const { yearId, decisions = [] } = req.body;
+        const { yearId, decisions = [] } = req.body;
 
-    for (const decision of decisions) {
-      if (decision.action === 'continue') {
-        await connection.query(`
-          UPDATE students 
-          SET status = 'studying' 
-          WHERE student_id = ?
-        `, [decision.student_id]);
+        for (const decision of decisions) {
+            if (decision.action === 'continue') {
+                // Получаем информацию о курсе и семестре, когда студент ушел в академ
+                const [academicInfo] = await connection.query(`
+                    SELECT 
+                        gh.course_id,
+                        sh.semester_id,
+                        sh.group_id
+                    FROM academic_leaves al
+                    JOIN student_history sh ON al.start_history_id = sh.history_id
+                    JOIN group_history gh ON sh.group_id = gh.group_id
+                    WHERE al.student_id = ?
+                    LIMIT 1
+                `, [decision.student_id]);
 
-        await connection.query(`
-          DELETE FROM academic_leaves 
-          WHERE student_id = ?
-        `, [decision.student_id]);
+                if (academicInfo.length === 0) {
+                    throw new Error(`Не найдена информация об академотпуске для студента ${decision.student_id}`);
+                }
 
-      } else if (decision.action === 'expel') {
-        await connection.query(`
-          UPDATE students 
-          SET status = 'expelled' 
-          WHERE student_id = ?
-        `, [decision.student_id]);
-      }
-      // Для продления академа ничего не делаем
+                const { course_id, semester_id, group_id } = academicInfo[0];
+
+                // Обновляем статус студента
+                await connection.query(`
+                    UPDATE students 
+                    SET status = 'studying' 
+                    WHERE student_id = ?
+                `, [decision.student_id]);
+
+                // Удаляем запись об академотпуске
+                await connection.query(`
+                    DELETE FROM academic_leaves 
+                    WHERE student_id = ?
+                `, [decision.student_id]);
+
+                // Архивируем старую запись истории студента
+                await connection.query(`
+                    UPDATE student_history
+                    SET status = 'archived'
+                    WHERE student_id = ?
+                    AND status = 'active'
+                `, [decision.student_id]);
+
+                // Создаем новую запись в истории студента с теми же курсом и семестром
+                await connection.query(`
+                    INSERT INTO student_history 
+                    (student_id, group_id, year_id, semester_id, status)
+                    VALUES (?, ?, ?, ?, 'active')
+                `, [decision.student_id, group_id, yearId, semester_id]);
+
+            } else if (decision.action === 'expel') {
+                await connection.query(`
+                    UPDATE students 
+                    SET status = 'expelled' 
+                    WHERE student_id = ?
+                `, [decision.student_id]);
+            }
+        }
+
+        await connection.commit();
+        res.json({
+            success: true,
+            message: 'Решения по академотпускам применены'
+        });
+
+    } catch (err) {
+        if (connection) await connection.rollback();
+        console.error(err);
+        res.status(500).json({
+            success: false,
+            message: 'Ошибка при обработке решений'
+        });
+    } finally {
+        if (connection) connection.release();
     }
-
-    // Если нужно, тут можно добавить запрос на архивирование групп
-
-    await connection.commit();
-    res.json({
-      success: true,
-      message: 'Решения по академотпускам применены'
-    });
-
-  } catch (err) {
-    if (connection) await connection.rollback();
-    console.error(err);
-    res.status(500).json({
-      success: false,
-      message: 'Ошибка при обработке решений'
-    });
-  } finally {
-    if (connection) connection.release();
-  }
 };
 
 
