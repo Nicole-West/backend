@@ -550,7 +550,10 @@ exports.studentProcessing = async (req, res) => {
         `, [transition.student_id, currentYearId]);
 
         const lastHistory = rows[0];
-
+        
+        console.log('rows', rows)
+        console.log('currentYearId', currentYearId)
+        console.log('lastHistory', lastHistory)
         console.log('transition.student_id', transition.student_id);
         console.log('lastHistory.history_id', lastHistory?.history_id);
 
