@@ -247,7 +247,7 @@ exports.getAcademicLeaveStudents = async (req, res) => {
 exports.getAvailableGroups2 = async (req, res) => {
   try {
     const { yearId } = req.params;
-    
+
     const [groups] = await db.query(
       `SELECT 
                 sg.group_id,
@@ -503,6 +503,14 @@ exports.studentProcessing = async (req, res) => {
 
     // 4. Обрабатываем перевод студентов
     for (const transition of transitions) {
+      const [[student]] = await connection.query(
+        'SELECT status FROM students WHERE student_id = ?',
+        [transition.student_id]
+      );
+
+      if (student.status === 'academic_leave' && transition.action === 'continue') {
+        continue; // Пропускаем студента
+      }
       if (transition.action === 'continue' || transition.action === 'transfer') {
         const targetGroupId = transition.action === 'transfer'
           ? transition.new_group_id
