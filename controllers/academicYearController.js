@@ -507,9 +507,11 @@ exports.studentProcessing = async (req, res) => {
         [transition.student_id]
       );
 
+      // Пропускаем студента, если он в академе и продолжает учёбу (не переводим)
       if (student.status === 'academic_leave' && transition.action === 'continue') {
-        continue; // Пропускаем студента
+        continue;
       }
+
       if (transition.action === 'continue' || transition.action === 'transfer') {
         const targetGroupId = transition.action === 'transfer'
           ? transition.new_group_id
@@ -527,23 +529,13 @@ exports.studentProcessing = async (req, res) => {
           newYearId
         ]);
       }
-      else if (transition.action === 'academic_leave') {
-        const [history] = await connection.query(`
-          INSERT INTO student_history 
-          (student_id, group_id, year_id, semester_id, status)
-          VALUES (?, ?, ?, 
-            (SELECT semester_id FROM semesters WHERE semester_number = '1'), 
-            'active')
-        `, [
-          transition.student_id,
-          transition.current_group_id,
-          newYearId
-        ]);
 
+      else if (transition.action === 'academic_leave') {
+        // Только добавляем в academic_leaves и обновляем статус — не вставляем в student_history!
         await connection.query(`
-          INSERT INTO academic_leaves (student_id, start_history_id)
+          INSERT INTO academic_leaves (student_id, start_year_id)
           VALUES (?, ?)
-        `, [transition.student_id, history.insertId]);
+        `, [transition.student_id, newYearId]);
 
         await connection.query(`
           UPDATE students 
@@ -551,6 +543,7 @@ exports.studentProcessing = async (req, res) => {
           WHERE student_id = ?
         `, [transition.student_id]);
       }
+
       else if (transition.action === 'expel') {
         await connection.query(`
           UPDATE students 
@@ -559,6 +552,7 @@ exports.studentProcessing = async (req, res) => {
         `, [transition.student_id]);
       }
     }
+
     console.log('done 4');
 
     await connection.commit();
@@ -578,6 +572,7 @@ exports.studentProcessing = async (req, res) => {
     if (connection) connection.release();
   }
 };
+
 
 
 const XLSX = require('xlsx');
