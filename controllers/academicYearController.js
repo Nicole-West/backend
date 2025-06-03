@@ -531,11 +531,25 @@ exports.studentProcessing = async (req, res) => {
       }
 
       else if (transition.action === 'academic_leave') {
-        // Только добавляем в academic_leaves и обновляем статус — не вставляем в student_history!
+        // Найти активную запись student_history текущего года
+        const [[lastHistory]] = await connection.query(`
+          SELECT history_id
+          FROM student_history
+          WHERE student_id = ?
+            AND year_id = ?
+            AND status = 'active'
+          LIMIT 1
+        `, [transition.student_id, currentYearId]);
+
+        if (!lastHistory) {
+          throw new Error(`Активная запись в student_history не найдена для студента ID ${transition.student_id}`);
+        }
+
+        // Добавляем запись в academic_leaves
         await connection.query(`
-          INSERT INTO academic_leaves (student_id, start_year_id)
+          INSERT INTO academic_leaves (student_id, start_history_id)
           VALUES (?, ?)
-        `, [transition.student_id, newYearId]);
+        `, [transition.student_id, lastHistory.history_id]);
 
         await connection.query(`
           UPDATE students 
