@@ -209,7 +209,7 @@ exports.getAcademicLeaveStudents = async (req, res) => {
     const { yearId } = req.params;
 
     const [students] = await db.query(`
-            SELECT 
+            SELECT DISTINCT
                 s.student_id,
                 s.full_name,
                 sg.group_number,
