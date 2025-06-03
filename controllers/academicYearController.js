@@ -549,6 +549,10 @@ exports.studentProcessing = async (req, res) => {
           LIMIT 1
         `, [transition.student_id, currentYearId]);
 
+        console.log('currentYearId', currentYearId)
+        console.log('history_id', lastHistory.history_id)
+        console.log('lastHistory', lastHistory)
+        
         if (!lastHistory) {
           throw new Error(`Активная запись в student_history не найдена для студента ID ${transition.student_id}`);
         }
@@ -557,7 +561,7 @@ exports.studentProcessing = async (req, res) => {
         await connection.query(`
           INSERT INTO academic_leaves (student_id, start_history_id)
           VALUES (?, ?)
-        `, [transition.student_id, lastHistory]);
+        `, [transition.student_id, lastHistory.history_id]);
 
         await connection.query(`
           UPDATE students 
