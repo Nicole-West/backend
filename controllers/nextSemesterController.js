@@ -156,6 +156,7 @@ exports.getAcademicLeaves = async (req, res) => {
       LEFT JOIN semesters sem ON gh.semester_id = sem.semester_id
       LEFT JOIN academic_years ay ON gh.year_id = ay.year_id
       WHERE s.status IN ('academic_leave', 'repeat_graduate')
+      AND sem.semester_number = 2
       ORDER BY 
         CASE WHEN s.status = 'repeat_graduate' THEN 0 ELSE 1 END,
         sg.group_number, 
