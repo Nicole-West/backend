@@ -28,72 +28,72 @@ exports.getCurrentMonth = async (req, res) => {
 };
 
 exports.moveToNextMonth = async (req, res) => {
-  console.log(`[GET] /api/month/NextMonth`);
+  console.log(`[POST] /api/month/next-month`);
 
   try {
+    // 1. Получаем текущий учебный год
     const [yearRows] = await db.query(`SELECT year_id FROM academic_years WHERE is_current = TRUE`);
+    if (!yearRows.length) {
+      return res.status(400).json({ error: 'Не найден текущий учебный год' });
+    }
     const currentYearId = yearRows[0].year_id;
 
-    const [monthRows] = await db.query(`
+    // 2. Находим текущий активный месяц (по флагу аттестации)
+    const [currentMonthRows] = await db.query(`
       SELECT month, month_id FROM active_months
-      WHERE year_id = ?
-      ORDER BY month DESC
+      WHERE year_id = ? AND is_attestation_month = TRUE
       LIMIT 1
     `, [currentYearId]);
-
-    if (!monthRows.length) {
-      return res.status(400).json({ error: 'Не найден текущий месяц' });
+    
+    if (!currentMonthRows.length) {
+      return res.status(400).json({ error: 'Не найден текущий активный месяц' });
     }
 
-    const currentMonth = monthRows[0].month;
+    const currentMonth = currentMonthRows[0].month;
+    const currentMonthId = currentMonthRows[0].month_id;
 
-    const currentMonthId = monthRows[0].month_id;
+    console.log(`Текущий активный месяц: ${currentMonth}`);
 
-    console.log('Текущий месяц:', currentMonth);
+    // 3. Определяем следующий месяц
+    const monthSequence = ['2', '3', '4', '5', '9', '10', '11', '12'];
+    const currentIndex = monthSequence.indexOf(currentMonth);
+    
+    if (currentIndex === -1) {
+      throw new Error(`Неизвестный текущий месяц: ${currentMonth}`);
+    }
 
-    // Проверки на крайние месяцы
-    if (currentMonth === '12') {
+    // Проверка на конец семестра
+    if (currentMonth === '5' || currentMonth === '12') {
       return res.status(400).json({
-        error: 'Перевод невозможен. Рекомендуется перейти на следующий семестр.'
+        error: 'Перевод невозможен. Рекомендуется перейти на следующий семестр.',
+        needSemesterChange: true
       });
     }
 
-    if (currentMonth === '5') {
-      return res.status(400).json({
-        error: 'Перевод невозможен. Рекомендуется начать новый учебный год.'
-      });
-    }
+    const nextMonth = monthSequence[currentIndex + 1];
 
-    let nextMonth;
-    if (currentMonth === '2') nextMonth = '3';
-    else if (currentMonth === '3') nextMonth = '4';
-    else if (currentMonth === '4') nextMonth = '5';
-    else if (currentMonth === '9') nextMonth = '10';
-    else if (currentMonth === '10') nextMonth = '11';
-    else if (currentMonth === '11') nextMonth = '12';
-    else throw new Error('Некорректный текущий месяц: ' + currentMonth);
-
-    console.log('Следующий месяц:', nextMonth);
-
+    // 4. Обновляем текущий месяц (снимаем флаг аттестации)
     await db.query(`
       UPDATE active_months
       SET is_attestation_month = FALSE
       WHERE month_id = ?
-`, [currentMonthId]);
+    `, [currentMonthId]);
 
+    // 5. Создаем запись для следующего месяца
     await db.query(`
       INSERT INTO active_months (year_id, month, is_attestation_month)
       VALUES (?, ?, TRUE)
     `, [currentYearId, nextMonth]);
 
-    const [monthIdRows] = await db.query(`
+    // 6. Получаем ID нового месяца
+    const [newMonthRows] = await db.query(`
       SELECT month_id FROM active_months
-      WHERE year_id = ? AND month = ?
-      ORDER BY month DESC
+      WHERE year_id = ? AND month = ? AND is_attestation_month = TRUE
       LIMIT 1
     `, [currentYearId, nextMonth]);
-    const monthId = monthIdRows[0].month_id;
+    const newMonthId = newMonthRows[0].month_id;
 
+    // 7. Создаем пустые оценки для нового месяца
     await db.query(`
       INSERT INTO grades (student_history_id, group_subject_id, month_id, last_edited_by, grade)
       SELECT 
@@ -113,16 +113,21 @@ exports.moveToNextMonth = async (req, res) => {
             AND g.group_subject_id = gs.group_subject_id 
             AND g.month_id = ?
         )
-    `, [monthId, currentYearId, monthId]);
+    `, [newMonthId, currentYearId, newMonthId]);
 
     res.status(200).json({
       message: 'Следующий месяц успешно активирован',
+      currentMonth,
       nextMonth,
-      needChangeSemester
+      needSemesterChange: false
     });
+
   } catch (err) {
     console.error('Ошибка при переходе на следующий месяц:', err);
-    res.status(500).json({ error: 'Ошибка при переходе на следующий месяц' });
+    res.status(500).json({ 
+      error: 'Ошибка при переходе на следующий месяц',
+      details: err.message 
+    });
   }
 };
 
