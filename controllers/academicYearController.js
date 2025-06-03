@@ -96,7 +96,10 @@ exports.processTransition = async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    const { currentYearId, nextYear, repeatStudents = [] } = req.body;
+    const { currentYearId, nextYear, repeatStudents } = req.body;
+
+    // Инициализируем repeatStudents как пустой массив, если он равен null или не определен
+    const studentsToRepeat = Array.isArray(repeatStudents) ? repeatStudents : [];
 
     // 1. Обновляем статусы выпускников
     await connection.query(`
@@ -110,7 +113,7 @@ exports.processTransition = async (req, res) => {
       END
       WHERE gh.year_id = ?
       AND c.course_name IN ('Бакалавриат 4 курс', 'Магистратура 2 курс')
-    `, [repeatStudents.length > 0 ? 1 : 0, repeatStudents, currentYearId]);
+    `, [studentsToRepeat.length > 0 ? 1 : 0, studentsToRepeat, currentYearId]);
 
     // 2. Архивируем записи выпускников
     await connection.query(`
@@ -133,14 +136,14 @@ exports.processTransition = async (req, res) => {
     `, [currentYearId]);
 
     // 4. Для студентов на повторную защиту создаем академотпуск
-    if (repeatStudents.length > 0) {
+    if (studentsToRepeat.length > 0) {
       // Получаем ID следующего семестра (2 семестр)
       const [[secondSemester]] = await connection.query(`
         SELECT semester_id FROM semesters WHERE semester_number = '2'
       `);
 
       // Создаем новую запись в student_history для повторников
-      for (const studentId of repeatStudents) {
+      for (const studentId of studentsToRepeat) {
         // Получаем информацию о группе студента
         const [[studentInfo]] = await connection.query(`
           SELECT 
