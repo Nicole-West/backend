@@ -254,6 +254,8 @@ exports.processAcademicLeaves = async (req, res) => {
 
     for (const decision of decisions) {
       if (decision.action === 'continue') {
+        const newGroupId = decision.new_group_id;
+
         // Получаем информацию о курсе и семестре, когда студент ушел в академ
         const [academicInfo] = await connection.query(`
                     SELECT 
@@ -299,7 +301,7 @@ exports.processAcademicLeaves = async (req, res) => {
                     INSERT INTO student_history 
                     (student_id, group_id, year_id, semester_id, status)
                     VALUES (?, ?, ?, ?, 'active')
-                `, [decision.student_id, group_id, yearId, semester_id]);
+                `, [decision.student_id, newGroupId, yearId, semester_id]);
 
       } else if (decision.action === 'expel') {
         await connection.query(`
