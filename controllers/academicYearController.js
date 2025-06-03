@@ -475,7 +475,7 @@ exports.addManualGroup = async (req, res) => {
     connection = await db.getConnection();
     await connection.beginTransaction();
 
-    const { groupName, students, yearId } = req.body;
+    const { groupName, students, yearId, isMaster = false } = req.body;
 
     const [year] = await connection.query(`
       SELECT year_id FROM academic_years WHERE is_current = TRUE;
@@ -494,14 +494,17 @@ exports.addManualGroup = async (req, res) => {
       VALUES (?, 'active')
     `, [groupName]);
 
-    // 3. Добавляем группу в историю (1 курс, 1 семестр)
+    // 3. Определяем курс в зависимости от флага isMaster
+    const courseName = isMaster ? 'Магистратура 1 курс' : 'Бакалавриат 1 курс';
+
+    // 4. Добавляем группу в историю (1 курс, 1 семестр)
     await connection.query(`
       INSERT INTO group_history (group_id, year_id, semester_id, course_id)
       VALUES (?, ?, 
         (SELECT semester_id FROM semesters WHERE semester_number = '1'),
-        (SELECT course_id FROM courses WHERE course_name = 'Бакалавриат 1 курс')
+        (SELECT course_id FROM courses WHERE course_name = ?)
       )
-    `, [group.insertId, year_id]);
+    `, [group.insertId, year_id, courseName]);
 
     // 4. Добавляем студентов
     for (const studentName of students) {
