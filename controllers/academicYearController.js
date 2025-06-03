@@ -546,14 +546,14 @@ exports.studentProcessing = async (req, res) => {
           WHERE student_id = ?
             AND year_id = ?
             AND status = 'active'
-          LIMIT 1
-        `, [transition.student_id, currentYearId]);
+          LIMIT 1`, [transition.student_id, currentYearId]);
 
         const lastHistory = rows[0];
         
         console.log('rows', rows)
         console.log('currentYearId', currentYearId)
-        console.log('lastHistory', lastHistory)
+        console.log('lastHistory[0]', lastHistory[0])
+        console.log('lastHistory[0].history_id', lastHistory[0].history_id)
         console.log('transition.student_id', transition.student_id);
         console.log('lastHistory.history_id', lastHistory?.history_id);
 
