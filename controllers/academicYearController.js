@@ -100,6 +100,54 @@ exports.processTransition = async (req, res) => {
 
     // Инициализируем repeatStudents как пустой массив, если он равен null или не определен
     const studentsToRepeat = Array.isArray(repeatStudents) ? repeatStudents : [];
+
+    const [[secondSemester]] = await connection.query(`
+      SELECT semester_id FROM semesters WHERE semester_number = '2'
+    `);
+
+    // 1. Сначала создаем академотпуск для повторников
+    if (studentsToRepeat.length > 0) {
+
+      // Создаем новую запись в student_history для повторников
+      for (const studentId of studentsToRepeat) {
+        // Получаем информацию о группе студента (ищем активные записи ДО обновления статуса)
+        const [[studentInfo]] = await connection.query(`
+          SELECT 
+            sh.group_id
+          FROM student_history sh
+          JOIN group_history gh ON sh.group_id = gh.group_id
+          WHERE sh.student_id = ?
+          AND sh.year_id = ?
+          AND sh.status = 'active'
+          LIMIT 1
+        `, [studentId, currentYearId]);
+
+        if (studentInfo) {
+          //     // Создаем новую запись в истории студента для 2 семестра
+          //     const [newHistory] = await connection.query(`
+          //   INSERT INTO student_history 
+          //   (student_id, group_id, year_id, semester_id, status)
+          //   VALUES (?, ?, ?, ?, 'active')
+          // `, [studentId, studentInfo.group_id, currentYearId, secondSemester.semester_id]);
+
+          const [[{ history_id: newHistoryId }]] = await connection.query(`
+            SELECT history_id FROM student_history
+            WHERE student_id = ?
+            AND year_id = ?
+            AND semester_id = ?
+            ORDER BY history_id DESC
+            LIMIT 1
+          `, [studentId, currentYearId, secondSemester.semester_id]);
+
+          // Добавляем запись об академотпуске
+          await connection.query(`
+        INSERT INTO academic_leaves (student_id, start_history_id)
+        VALUES (?, ?)
+      `, [studentId, newHistoryId]);
+        }
+      }
+    }
+
     // 1. Обновляем статусы выпускников
     if (studentsToRepeat.length > 0) {
       await connection.query(`
@@ -145,42 +193,42 @@ exports.processTransition = async (req, res) => {
     `, [currentYearId]);
 
     // 4. Для студентов на повторную защиту создаем академотпуск
-    if (studentsToRepeat.length > 0) {
-      // Получаем ID следующего семестра (2 семестр)
-      const [[secondSemester]] = await connection.query(`
-        SELECT semester_id FROM semesters WHERE semester_number = '2'
-      `);
+    // if (studentsToRepeat.length > 0) {
+    //   // Получаем ID следующего семестра (2 семестр)
+    //   const [[secondSemester]] = await connection.query(`
+    //     SELECT semester_id FROM semesters WHERE semester_number = '2'
+    //   `);
 
-      // Создаем новую запись в student_history для повторников
-      for (const studentId of studentsToRepeat) {
-        // Получаем информацию о группе студента
-        const [[studentInfo]] = await connection.query(`
-          SELECT 
-            sh.group_id
-          FROM student_history sh
-          JOIN group_history gh ON sh.group_id = gh.group_id
-          WHERE sh.student_id = ?
-          AND sh.year_id = ?
-          AND sh.status = 'active'
-          LIMIT 1
-        `, [studentId, currentYearId]);
+    //   // Создаем новую запись в student_history для повторников
+    //   for (const studentId of studentsToRepeat) {
+    //     // Получаем информацию о группе студента
+    //     const [[studentInfo]] = await connection.query(`
+    //       SELECT 
+    //         sh.group_id
+    //       FROM student_history sh
+    //       JOIN group_history gh ON sh.group_id = gh.group_id
+    //       WHERE sh.student_id = ?
+    //       AND sh.year_id = ?
+    //       AND sh.status = 'active'
+    //       LIMIT 1
+    //     `, [studentId, currentYearId]);
 
-        if (studentInfo) {
-          // Создаем новую запись в истории студента для 2 семестра
-          const [newHistory] = await connection.query(`
-            INSERT INTO student_history 
-            (student_id, group_id, year_id, semester_id, status)
-            VALUES (?, ?, ?, ?, 'active')
-          `, [studentId, studentInfo.group_id, currentYearId, secondSemester.semester_id]);
+    //     if (studentInfo) {
+    //       // Создаем новую запись в истории студента для 2 семестра
+    //       const [newHistory] = await connection.query(`
+    //         INSERT INTO student_history 
+    //         (student_id, group_id, year_id, semester_id, status)
+    //         VALUES (?, ?, ?, ?, 'active')
+    //       `, [studentId, studentInfo.group_id, currentYearId, secondSemester.semester_id]);
 
-          // Добавляем запись об академотпуске
-          await connection.query(`
-            INSERT INTO academic_leaves (student_id, start_history_id)
-            VALUES (?, ?)
-          `, [studentId, newHistory.insertId]);
-        }
-      }
-    }
+    //       // Добавляем запись об академотпуске
+    //       await connection.query(`
+    //         INSERT INTO academic_leaves (student_id, start_history_id)
+    //         VALUES (?, ?)
+    //       `, [studentId, newHistory.insertId]);
+    //     }
+    //   }
+    // }
 
     // 5. Создаем новый учебный год (если нужно)
     // const [newYear] = await connection.query(`
@@ -284,7 +332,7 @@ exports.getAvailableGroups2 = async (req, res) => {
     console.log('groups:')
     console.log(groups)
     console.log('конец')
-    
+
     res.json({
       success: true,
       data: groups
