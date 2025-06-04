@@ -363,6 +363,8 @@ exports.updateStudentStatuses = async (req, res) => {
     await connection.beginTransaction();
 
     const { updates } = req.body;
+    
+    const currentSemesterId = 1;
     const nextSemesterId = 2;
 
     const [[{ year_id: currentYearID }]] = await db.query(`
@@ -393,9 +395,9 @@ exports.updateStudentStatuses = async (req, res) => {
         let groupId = new_group_id;
         if (!groupId) {
           const [[groupRow]] = await connection.query(`
-      SELECT group_id FROM student_history 
-      WHERE history_id = ?
-    `, [history_id]);
+          SELECT group_id FROM student_history 
+          WHERE history_id = ?
+        `, [history_id]);
           groupId = groupRow?.group_id;
         }
 
@@ -427,12 +429,14 @@ exports.updateStudentStatuses = async (req, res) => {
         //   throw new Error(`Не найдена запись group_history для группы ${groupId} (студент ${student_id})`);
         // }
 
-        // Создаём новую запись в student_history
-        await connection.query(`
-          INSERT INTO student_history 
-          (student_id, group_id, year_id, semester_id, status)
-          VALUES (?, ?, ?, ?, 'active')
-        `, [student_id, groupId, currentYearID, nextSemesterId]);
+        if (new_status === 'studying') {
+          // Создаём новую запись в student_history
+          await connection.query(`
+            INSERT INTO student_history 
+            (student_id, group_id, year_id, semester_id, status)
+            VALUES (?, ?, ?, ?, 'active')
+          `, [student_id, groupId, currentYearID, nextSemesterId]);
+        }
 
         // Если студент уходит в академ, добавляем в academic_leaves
         if (new_status === 'academic_leave') {
@@ -443,7 +447,7 @@ exports.updateStudentStatuses = async (req, res) => {
             AND semester_id = ?
             ORDER BY history_id DESC
             LIMIT 1
-          `, [student_id, currentYearID, nextSemesterId]);
+          `, [student_id, currentYearID, currentSemesterId]);
 
           await connection.query(`
             INSERT INTO academic_leaves (student_id, start_history_id)
