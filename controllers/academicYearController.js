@@ -221,35 +221,31 @@ exports.getAcademicLeaveStudents = async (req, res) => {
     const { yearId } = req.params;
 
     const [students] = await db.query(`
-            SELECT DISTINCT
-    s.student_id,
-    s.full_name,
-    sg.group_number,
-    c.course_name,
-    c.course_id,
-    sm.semester_number,
-    sh.history_id,
-    gh.year_id
-FROM
-    students s
-JOIN
-    academic_leaves al ON s.student_id = al.student_id
-JOIN
-    student_history sh ON al.start_history_id = sh.history_id
-JOIN
-    student_groups sg ON sh.group_id = sg.group_id
-JOIN
-    group_history gh ON sh.group_id = gh.group_id AND sh.year_id = gh.year_id AND sh.semester_id = gh.semester_id
-JOIN
-    course_subjects cs ON gh.course_id = cs.course_id
-JOIN
-    courses c ON cs.course_id = c.course_id
-JOIN
-    semesters sm ON cs.semester_id = sm.semester_id
-WHERE
-    sg.status = 'active'
-    AND s.status = 'academic_leave'
-    AND sm.semester_id = 1;
+      SELECT DISTINCT 
+        s.student_id,
+        s.full_name,
+        sg.group_number,
+        c.course_name,
+        c.course_id,
+        sem.semester_number,
+        sh.history_id,
+        ay.year_id
+      FROM students s
+      LEFT JOIN academic_leaves al ON s.student_id = al.student_id
+      LEFT JOIN student_history sh ON al.start_history_id = sh.history_id
+      LEFT JOIN group_history gh ON sh.group_id = gh.group_id 
+                          AND sh.year_id = gh.year_id 
+                          AND sh.semester_id = gh.semester_id
+      LEFT JOIN student_groups sg ON sh.group_id = sg.group_id
+      LEFT JOIN courses c ON gh.course_id = c.course_id
+      LEFT JOIN semesters sem ON gh.semester_id = sem.semester_id
+      LEFT JOIN academic_years ay ON gh.year_id = ay.year_id
+      WHERE s.status IN ('academic_leave', 'repeat_graduate')
+      AND sem.semester_number = 1
+      ORDER BY 
+        CASE WHEN s.status = 'repeat_graduate' THEN 0 ELSE 1 END,
+        sg.group_number, 
+        s.full_name
         `);
 
     res.json({
