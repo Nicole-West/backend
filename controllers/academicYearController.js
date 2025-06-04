@@ -283,9 +283,10 @@ exports.getAvailableGroups2 = async (req, res) => {
       WHERE sg.status = 'active'
       AND ay.is_current = TRUE
       ORDER BY sg.group_number
-      `,
-      [yearId]
+      `
     );
+
+    console.log(groups)
 
     res.json({
       success: true,
