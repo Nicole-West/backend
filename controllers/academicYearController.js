@@ -285,9 +285,10 @@ exports.getAvailableGroups2 = async (req, res) => {
       ORDER BY sg.group_number
       `
     );
-
+    console.log('groups:')
     console.log(groups)
-
+    console.log('конец')
+    
     res.json({
       success: true,
       data: groups
